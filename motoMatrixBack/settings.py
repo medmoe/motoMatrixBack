@@ -13,6 +13,9 @@ import os
 import datetime
 from decouple import config
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -44,9 +47,11 @@ INSTALLED_APPS = [
     'orders',
     'notifications',
     # Third party apps
+    'rest_framework_simplejwt.token_blacklist',
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+
 ]
 
 MIDDLEWARE = [
@@ -84,13 +89,14 @@ WSGI_APPLICATION = 'motoMatrixBack.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-
+# If you face password issues, try this query in your postgresql console:
+# ALTER USER <user> WITH PASSWORD <password>;
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': config("DB_NAME"),
         "USER": config("DB_USER"),
-        "PASSWORD": config("DB_PASSWORD"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": config("DB_HOST"),
         "PORT": config("DB_PORT"),
     }

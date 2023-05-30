@@ -1,1 +1,50 @@
-.env
+# Ignore compiled Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local development settings
+*.env
+
+# Ignore the virtual environment
+venv/
+env/
+.env/
+
+# Ignore static files collected by Django
+static/
+
+# Ignore media files uploaded by users
+media/
+
+# Ignore database files
+*.sqlite3
+*.db
+
+# Ignore log files
+*.log
+
+# Ignore editor-specific files
+.vscode/
+.idea/
+
+# Ignore temporary and backup files
+*~
+*.swp
+*.swo
+*.bak
+
+# Ignore sensitive or environment-specific configuration
+secret_key.txt
+settings_local.py
+
+# Ignore compiled translations
+locale/
+
+# Ignore package build directories
+dist/
+build/
+
+# Ignore deployment-specific files and directories
+deploy/
