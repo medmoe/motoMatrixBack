@@ -5,8 +5,6 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
-# Create your tests here.
-
 class AccountsTestCases(APITestCase):
 
     def setUp(self):

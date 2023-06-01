@@ -91,16 +91,28 @@ WSGI_APPLICATION = 'motoMatrixBack.wsgi.application'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 # If you face password issues, try this query in your postgresql console:
 # ALTER USER <user> WITH PASSWORD <password>;
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": config("DB_HOST"),
-        "PORT": config("DB_PORT"),
+if os.environ.get('GITHUB_WORKFLOW'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': "github_actions",
+            'USER': 'postgres',
+            'PASSWORD': 'postgres',
+            'HOST': 'localhost',
+            'PORT': '5432',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": os.getenv("DB_PASSWORD"),
+            "HOST": config("DB_HOST"),
+            "PORT": config("DB_PORT"),
+        }
+    }
 
 
 # Password validation
