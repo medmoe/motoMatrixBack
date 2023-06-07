@@ -1,6 +1,7 @@
 from django.contrib.auth.models import User
+from rest_framework import exceptions
 from rest_framework import serializers
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import Consumer, Provider, UserProfile
 
 
@@ -35,8 +36,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         # Create the user
         user_data = validated_data.pop('user')
         user = UserSerializer.create(UserSerializer(), validated_data=user_data)
-        user_profile, created = UserProfile.objects.update_or_create(user=user, **validated_data)
-        return user_profile
+        if validated_data['is_provider']:
+            provider, created = Provider.objects.update_or_create(user=user, **validated_data)
+            return provider
+        else:
+            consumer, created = Consumer.objects.update_or_create(user=user, **validated_data)
+            return consumer
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user')
@@ -46,3 +51,40 @@ class UserProfileSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        try:
+            user = User.objects.get(username=attrs['username'])
+        except User.DoesNotExist:
+            raise exceptions.AuthenticationFailed(
+                'No active account found with the given credentials'
+            )
+        # if the user is a provider, don't allow them to login if the account status is not approved
+        # we need to get the provider instance
+        # to achieve this we need to find the user profile instance first that is associated with the user
+        try:
+            user_profile = UserProfile.objects.get(user=user)
+        except UserProfile.DoesNotExist:
+            raise exceptions.AuthenticationFailed(
+                'No active account found with the given credentials'
+            )
+        if user_profile.is_provider:
+            try:
+                provider = Provider.objects.get(userprofile_ptr_id=user_profile.id)
+            except Provider.DoesNotExist:
+                raise exceptions.AuthenticationFailed(
+                    'No active account found with the given credentials'
+                )
+            if provider.account_status != 'approved':
+                raise exceptions.AuthenticationFailed(
+                    'Your account is not approved yet'
+                )
+        data = super().validate(attrs)
+        refresh = self.get_token(self.user)
+        data['refresh'] = str(refresh)
+        data['access'] = str(refresh.access_token)
+        return data
+
+
