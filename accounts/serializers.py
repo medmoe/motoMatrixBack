@@ -61,9 +61,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise exceptions.AuthenticationFailed(
                 'No active account found with the given credentials'
             )
-        # if the user is a provider, don't allow them to login if the account status is not approved
-        # we need to get the provider instance
-        # to achieve this we need to find the user profile instance first that is associated with the user
         try:
             user_profile = UserProfile.objects.get(user=user)
         except UserProfile.DoesNotExist:

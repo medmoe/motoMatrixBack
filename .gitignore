@@ -48,3 +48,8 @@ build/
 
 # Ignore deployment-specific files and directories
 deploy/
+
+# Igore coverage reports
+.coverage
+htmlcov/
+
