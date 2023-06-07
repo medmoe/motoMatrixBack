@@ -53,6 +53,16 @@ class AccountsTestCases(APITestCase):
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_duplicate_email(self):
+        # First signup
+        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Second signup with the same data
+        self.sign_up_data['user']['username'] = 'anotherusername'
+        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+        self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_login(self):
         response = self.client.post(reverse('login'), {'username': 'testusername', 'password': 'testpassword'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
