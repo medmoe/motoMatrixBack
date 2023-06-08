@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import exceptions
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from .models import Consumer, Provider, UserProfile
 
 
@@ -84,4 +84,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['access'] = str(refresh.access_token)
         return data
 
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    pass
 
