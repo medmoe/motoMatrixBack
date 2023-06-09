@@ -45,3 +45,9 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
           python manage.py test
+
+      - name: Run flakes
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          flake8 . --exclude=migrations

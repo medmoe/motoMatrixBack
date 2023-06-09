@@ -6,7 +6,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -24,21 +23,30 @@ class Migration(migrations.Migration):
                 ('city', models.CharField(blank=True, max_length=50)),
                 ('country', models.CharField(blank=True, max_length=50)),
                 ('rating', models.IntegerField(default=0)),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    'user',
+                    models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
             ],
         ),
         migrations.CreateModel(
             name='Consumer',
             fields=[
-                ('userprofile_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='accounts.userprofile')),
+                ('userprofile_ptr',
+                 models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True,
+                                      primary_key=True, serialize=False, to='accounts.userprofile')),
             ],
             bases=('accounts.userprofile',),
         ),
         migrations.CreateModel(
             name='Provider',
             fields=[
-                ('userprofile_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='accounts.userprofile')),
-                ('provider_type', models.CharField(blank=True, choices=[('store', 'Store'), ('individual', 'Individual'), ('junkyard', 'Junkyard'), ('wholesaler', 'Wholesaler'), ('manufacturer', 'Manufacturer')], max_length=20)),
+                ('userprofile_ptr',
+                 models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True,
+                                      primary_key=True, serialize=False, to='accounts.userprofile')),
+                ('provider_type', models.CharField(blank=True,
+                                                   choices=[('store', 'Store'), ('individual', 'Individual'),
+                                                            ('junkyard', 'Junkyard'), ('wholesaler', 'Wholesaler'),
+                                                            ('manufacturer', 'Manufacturer')], max_length=20)),
                 ('description', models.TextField(blank=True)),
             ],
             bases=('accounts.userprofile',),

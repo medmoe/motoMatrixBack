@@ -2,7 +2,6 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-from rest_framework_simplejwt.tokens import RefreshToken
 from .models import UserProfile, Provider
 
 
@@ -84,24 +83,6 @@ class AccountsTestCases(APITestCase):
         self.assertNotEquals(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['detail'], 'Your account is not approved yet')
 
-    # def test_refresh_tokens(self):
-    #     # signup
-    #     signup_response = self.sign_up()
-    #     self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
-    #     # login
-    #     login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-    #     self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-    #     self.assertIn('access', login_response.data)
-    #     self.assertIn('refresh', login_response.data)
-    #     # added refresh and access token to the client cookie
-    #     self.client.cookies['refresh'] = login_response.data['refresh']
-    #     self.client.cookies['access'] = login_response.data['access']
-    #     # refresh
-    #     refresh_response = self.client.post(reverse('refresh'))
-    #     self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
-    #     self.assertIn('access', refresh_response.data)
-    #     self.assertNotEquals(refresh_response.data['access'], login_response.data['access'])
-
     def test_logout(self):
         # signup
         signup_response = self.sign_up()
@@ -147,3 +128,21 @@ class AccountsTestCases(APITestCase):
         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
         self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(login_response.data['detail'], 'No active account found with the given credentials')
+
+    def test_refresh_tokens(self):
+        # signup
+        signup_response = self.sign_up()
+        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        # login
+        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', login_response.data)
+        self.assertIn('refresh', login_response.data)
+        # added refresh and access token to the client cookie
+        self.client.cookies['refresh'] = login_response.data['refresh']
+        self.client.cookies['access'] = login_response.data['access']
+        # refresh
+        refresh_response = self.client.post(reverse('refresh'))
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', refresh_response.data)
+        self.assertNotEquals(refresh_response.data['access'], login_response.data['access'])

@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.exceptions import TokenError
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer
 
 
@@ -36,7 +37,7 @@ class LogoutView(APIView):
             response.delete_cookie('access')
             return response
         except Exception as e:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            return Response({'details': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -50,9 +51,19 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 
 class CustomTokenRefreshView(TokenRefreshView):
-    permission_classes = (permissions.AllowAny,)
 
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        response.set_cookie(key='access', value=response.data['access'], httponly=True)
-        return response
+        refresh_token = request.COOKIES['refresh']
+        if refresh_token is None:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data={'refresh': refresh_token})
+        try:
+            serializer.is_valid(raise_exception=True)
+            response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+            response.set_cookie(key='access', value=response.data['access'], httponly=True)
+            return response
+        except TokenError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
