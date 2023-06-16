@@ -21,6 +21,8 @@ class AutoPartList(APIView):
 
 
 class AutoPartDetail(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
     def get_object(self, id):
         try:
             return AutoPart.objects.get(id=id)

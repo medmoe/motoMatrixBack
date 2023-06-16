@@ -19,5 +19,8 @@ class AutoPartSerializer(serializers.ModelSerializer):
         if provider is None:
             raise serializers.ValidationError("Only providers can create auto parts")
 
+        if provider.account_status != 'approved':
+            raise serializers.ValidationError("Your account is not approved yet")
+
         auto_part = AutoPart.objects.create(provider=provider, **validated_data)
         return auto_part
