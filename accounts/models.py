@@ -38,3 +38,6 @@ class Provider(UserProfile):
     provider_type = models.CharField(max_length=20, choices=PROVIDER_TYPES, blank=True)
     account_status = models.CharField(max_length=20, choices=ACCOUNT_STATUS, default='pending')
     description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.user.username
