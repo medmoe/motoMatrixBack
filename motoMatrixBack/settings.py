@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'accounts',
     'orders',
     'notifications',
+    'components',
     # Third party apps
     'rest_framework_simplejwt.token_blacklist',
     'rest_framework',

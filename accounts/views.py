@@ -1,10 +1,12 @@
 from rest_framework import permissions, status
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import TokenError
-from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer
+from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
+from .models import UserProfile, Provider, Consumer
 
 
 class SignupView(APIView):
@@ -67,3 +69,36 @@ class CustomTokenRefreshView(TokenRefreshView):
             return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProfileDetail(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get_object(self, id, request):
+        try:
+            account = UserProfile.objects.get(id=id)
+            if account != request.user.userprofile:
+                raise PermissionDenied("You do not have permission to perform this action")
+
+            if account.is_provider:
+                provider = Provider.objects.get(userprofile_ptr_id=id)
+                return provider, True
+            consumer = Consumer.objects.get(user_profile_ptr=id)
+            return consumer, False
+
+        except UserProfile.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, id):
+        account, is_provider = self.get_object(id, request)
+        request.data['user'].pop('username', None)
+        if is_provider:
+            serializer = ProviderSerializer(account, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+        else:
+            serializer = ConsumerSerializer(account, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
