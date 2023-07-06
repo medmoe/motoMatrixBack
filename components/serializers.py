@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from accounts.models import Provider, Consumer, UserProfile
+from accounts.models import Provider
 from .models import AutoPart
 
 

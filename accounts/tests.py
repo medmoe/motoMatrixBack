@@ -210,6 +210,5 @@ class AccountsTestCases(APITestCase):
 
         # update user instance
         second = Provider.objects.last()
-        self.assertNotEqual(second.phone,'777 777 7777')
+        self.assertNotEqual(second.phone, '777 777 7777')
         self.assertNotEqual(second.address, 'another address')
-
