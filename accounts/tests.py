@@ -146,3 +146,70 @@ class AccountsTestCases(APITestCase):
         self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
         self.assertIn('access', refresh_response.data)
         self.assertNotEquals(refresh_response.data['access'], login_response.data['access'])
+
+    def test_provider_can_update_profile_information(self):
+        sign_up_response = self.sign_up(is_provider=True)
+        self.assertEqual(sign_up_response.status_code, status.HTTP_201_CREATED)
+        # activate the provider's account
+        provider = Provider.objects.first()
+        provider.account_status = 'approved'
+        provider.save()
+        # log the provider in
+        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+        # update the phone number and address
+        updated_data = self.sign_up_data
+        updated_data['phone'] = '666 666 6666'
+        updated_data['address'] = 'New Address'
+        update_response = self.client.put(
+            reverse('update_profile', args=[provider.userprofile_ptr_id]),
+            updated_data,
+            format='json')
+
+        self.assertEqual(update_response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(update_response.data.get('phone'), '666 666 6666')  # check response data
+        self.assertEqual(update_response.data.get('address'), 'New Address')  # check response data
+
+        # update the provider instance
+        provider = Provider.objects.first()
+        self.assertEqual(provider.phone, '666 666 6666')
+        self.assertEqual(provider.address, 'New Address')
+
+    def test_provider_cannot_update_other_users_information(self):
+        # let's register the user
+        signup_response = self.sign_up(is_provider=True)
+        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        self.sign_up_data['user']['username'] = 'another_user'
+        self.sign_up_data['user']['password'] = 'another_password'
+        self.sign_up_data['user']['email'] = 'another_email@test.com'
+        signup_response = self.sign_up(is_provider=True)
+        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Provider.objects.count(), 2)
+        # Approve the providers
+        first = Provider.objects.first()
+        second = Provider.objects.last()
+        first.account_status = 'approved'
+        second.account_status = 'approved'
+        first.save()
+        second.save()
+
+        # log the user in
+        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+        # update other user's information
+        updated_data = self.sign_up_data
+        updated_data['phone'] = '777 777 7777'
+        updated_data['address'] = 'another address'
+        update_response = self.client.put(
+            reverse('update_profile', args=[second.userprofile_ptr_id]),
+            updated_data,
+            format='json')
+        self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # update user instance
+        second = Provider.objects.last()
+        self.assertNotEqual(second.phone,'777 777 7777')
+        self.assertNotEqual(second.address, 'another address')
+

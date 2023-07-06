@@ -6,6 +6,9 @@ from .models import Consumer, Provider, UserProfile
 
 
 class UserSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False)
+    password = serializers.CharField(required=False)
+
     class Meta:
         model = User
         fields = ['username', 'first_name', 'last_name', 'email', 'password']
@@ -17,7 +20,10 @@ class UserSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         instance.username = validated_data.get('username', instance.username)
         # Make sure that the password is hashed
-        instance.set_password(validated_data.get('password', instance.password))
+        if 'password' in validated_data:
+            instance.set_password(validated_data.get('password', instance.password))
+        else:
+            instance.set_password(instance.password)
         instance.save()
         return instance
 
@@ -83,3 +89,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['refresh'] = str(refresh)
         data['access'] = str(refresh.access_token)
         return data
+
+
+class ProviderSerializer(UserProfileSerializer):
+    class Meta(UserProfileSerializer.Meta):
+        model = Provider
+        fields = UserProfileSerializer.Meta.fields + ['provider_type', 'description']
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user')
+        UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+
+class ConsumerSerializer(UserProfileSerializer):
+    class Meta:
+        model = Consumer
+        fields = UserProfileSerializer.Meta.fields
