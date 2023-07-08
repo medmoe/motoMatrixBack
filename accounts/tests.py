@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+
 from .models import UserProfile, Provider
 
 
@@ -19,14 +20,27 @@ class AccountsTestCases(APITestCase):
             'phone': '555 555 5555',
             'is_provider': False,
         }
+        self.sign_in_data = {
+            'username': 'newusername',
+            'password': 'newpassword'
+        }
 
-    def sign_up(self, is_provider=False):
+    def sign_up(self, is_provider=False, login=True):
         self.sign_up_data['is_provider'] = is_provider
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # login
+        if login:
+            response = self.client.post(reverse('login'), self.sign_in_data)
+            if not is_provider:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertIn('access', response.data)
+                self.assertIn('refresh', response.data)
+            return response
         return response
 
     def test_consumer_signup(self):
-        response = self.sign_up()
+        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(User.objects.count(), 1)
         latest_profile = UserProfile.objects.order_by('-id').first()
@@ -66,58 +80,28 @@ class AccountsTestCases(APITestCase):
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_consumer_login(self):
-        # signup
-        response = self.sign_up()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # login
-        response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
-
     def test_provider_login(self):
         response = self.sign_up(is_provider=True)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertNotEquals(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['detail'], 'Your account is not approved yet')
 
     def test_logout(self):
         # signup
-        signup_response = self.sign_up()
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
-        # login
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', login_response.data)
-        self.assertIn('refresh', login_response.data)
-
-        self.client.cookies['refresh'] = login_response.data['refresh']
-
+        response = self.sign_up()
+        self.client.cookies['refresh'] = response.data['refresh']
         logout_response = self.client.post(reverse('logout'))
         self.assertEqual(logout_response.status_code, status.HTTP_205_RESET_CONTENT)
 
     def test_logout_fail_on_wrong_refresh_token(self):
         # signup
-        signup_response = self.sign_up()
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
-        # login
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', login_response.data)
-        self.assertIn('refresh', login_response.data)
-
+        _ = self.sign_up()
         # set token to the client as a cookie
         self.client.cookies['refresh'] = "wrongrefresh"
-
         logout_response = self.client.post(reverse('logout'))
         self.assertEqual(logout_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_login_fail_on_wrong_credentials(self):
         # signup
-        signup_response = self.sign_up()
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        _ = self.sign_up(login=False)
         # login
         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
         self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -131,25 +115,18 @@ class AccountsTestCases(APITestCase):
 
     def test_refresh_tokens(self):
         # signup
-        signup_response = self.sign_up()
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
-        # login
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', login_response.data)
-        self.assertIn('refresh', login_response.data)
+        response = self.sign_up()
         # added refresh and access token to the client cookie
-        self.client.cookies['refresh'] = login_response.data['refresh']
-        self.client.cookies['access'] = login_response.data['access']
+        self.client.cookies['refresh'] = response.data['refresh']
+        self.client.cookies['access'] = response.data['access']
         # refresh
         refresh_response = self.client.post(reverse('refresh'))
         self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
         self.assertIn('access', refresh_response.data)
-        self.assertNotEquals(refresh_response.data['access'], login_response.data['access'])
+        self.assertNotEquals(refresh_response.data['access'], response.data['access'])
 
     def test_provider_can_update_profile_information(self):
-        sign_up_response = self.sign_up(is_provider=True)
-        self.assertEqual(sign_up_response.status_code, status.HTTP_201_CREATED)
+        _ = self.sign_up(is_provider=True, login=False)
         # activate the provider's account
         provider = Provider.objects.first()
         provider.account_status = 'approved'
@@ -178,13 +155,11 @@ class AccountsTestCases(APITestCase):
 
     def test_provider_cannot_update_other_users_information(self):
         # let's register the user
-        signup_response = self.sign_up(is_provider=True)
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        _ = self.sign_up(is_provider=True, login=False)
         self.sign_up_data['user']['username'] = 'another_user'
         self.sign_up_data['user']['password'] = 'another_password'
         self.sign_up_data['user']['email'] = 'another_email@test.com'
-        signup_response = self.sign_up(is_provider=True)
-        self.assertEqual(signup_response.status_code, status.HTTP_201_CREATED)
+        _ = self.sign_up(is_provider=True, login=False)
         self.assertEqual(Provider.objects.count(), 2)
         # Approve the providers
         first = Provider.objects.first()

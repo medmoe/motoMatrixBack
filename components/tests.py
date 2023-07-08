@@ -3,9 +3,10 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.test import APITestCase
-from .types import CATEGORY, CONDITION
+
 from accounts.models import Provider
 from .models import AutoPart
+from .types import CATEGORY, CONDITION
 
 
 class AutoPartTestCases(APITestCase):
@@ -64,6 +65,20 @@ class AutoPartTestCases(APITestCase):
             is_provider=self.provider_data['is_provider']
         )
 
+    def create_auto_part(self, user):
+        self.client.force_authenticate(user=user)
+        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(AutoPart.objects.count(), 1)
+        return AutoPart.objects.first()
+
+    def update_auto_part(self, auto_part, user, new_name):
+        self.client.force_authenticate(user=user)
+        auto_part_data = self.auto_part_data
+        auto_part_data['name'] = new_name
+        response = self.client.put(reverse('auto-part-detail', args=[auto_part.id]), auto_part_data, format='json')
+        return response
+
     def test_pending_provider_cannot_create_parts(self):
         self.client.force_authenticate(user=self.user2)
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
@@ -92,59 +107,34 @@ class AutoPartTestCases(APITestCase):
         self.assertEqual(len(response.data), 1)
 
     def test_approved_provider_can_update_part_info(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        auto_part = AutoPart.objects.first()
-        auto_part_data = self.auto_part_data
-        auto_part_data['name'] = 'new name'
-        response = self.client.put(reverse('auto-part-detail', args=[auto_part.id]), auto_part_data, format='json')
+        auto_part = self.create_auto_part(user=self.user)
+        response = self.update_auto_part(auto_part, user=self.user, new_name='new name')
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(AutoPart.objects.count(), 1)
         self.assertEqual(AutoPart.objects.get().name, 'new name')
 
     def test_approved_provider_can_delete_part(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        auto_part = AutoPart.objects.first()
+        auto_part = self.create_auto_part(user=self.user)
         response = self.client.delete(reverse('auto-part-detail', args=[auto_part.id]))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(AutoPart.objects.count(), 0)
 
     def test_approved_provider_cannot_delete_other_provider_part(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        auto_part = AutoPart.objects.first()
+        auto_part = self.create_auto_part(user=self.user)
         self.client.force_authenticate(user=self.user2)
         response = self.client.delete(reverse('auto-part-detail', args=[auto_part.id]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(AutoPart.objects.count(), 1)
 
     def test_approved_provider_cannot_update_other_provider_part(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        auto_part = AutoPart.objects.first()
-        self.client.force_authenticate(user=self.user2)
-        auto_part_data = self.auto_part_data
-        auto_part_data['name'] = 'new name'
-        response = self.client.put(reverse('auto-part-detail', args=[auto_part.id]), auto_part_data, format='json')
+        auto_part = self.create_auto_part(user=self.user)
+        response = self.update_auto_part(auto_part, user=self.user2, new_name='new name')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(AutoPart.objects.count(), 1)
         self.assertEqual(AutoPart.objects.get().name, 'name')
 
     def test_approved_provider_cannot_get_other_provider_part(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        auto_part = AutoPart.objects.first()
+        auto_part = self.create_auto_part(user=self.user)
         self.client.force_authenticate(user=self.user2)
         response = self.client.get(reverse('auto-part-detail', args=[auto_part.id]))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
