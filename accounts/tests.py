@@ -66,9 +66,11 @@ class AccountsTestCases(APITestCase):
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Second signup with the same data
+        # Second signup with the same username
+        self.sign_up_data['user']['email'] = 'another@email.co'
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data[0], "Username already exists")
 
     def test_duplicate_email(self):
         # First signup
@@ -79,6 +81,7 @@ class AccountsTestCases(APITestCase):
         self.sign_up_data['user']['username'] = 'anotherusername'
         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data[0], "Email already exists")
 
     def test_provider_login(self):
         response = self.sign_up(is_provider=True)

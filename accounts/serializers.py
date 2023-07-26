@@ -40,6 +40,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
         # Make sure that the email is unique
         if User.objects.filter(email=validated_data['user']['email']).exists():
             raise serializers.ValidationError("Email already exists")
+        # Make sure that the username is unique
+        if User.objects.filter(username=validated_data['user']['username']).exists():
+            raise serializers.ValidationError("Username already exists")
+
         # Create the user
         user_data = validated_data.pop('user')
         user = UserSerializer.create(UserSerializer(), validated_data=user_data)
