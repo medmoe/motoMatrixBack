@@ -137,6 +137,8 @@ class AccountsTestCases(APITestCase):
         # log the provider in
         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn("user", login_response.data)
+        self.assertIn("dashboard", login_response.data)
 
         # update the phone number and address
         updated_data = self.sign_up_data

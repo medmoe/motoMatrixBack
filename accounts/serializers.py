@@ -4,6 +4,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import Consumer, Provider, UserProfile
+from components.models import AutoPart
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -93,6 +94,36 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         refresh = self.get_token(self.user)
         data['refresh'] = str(refresh)
         data['access'] = str(refresh.access_token)
+
+        # Add extra responses here
+        user_fields = ["username", "email", "first_name", "last_name"]
+        user_profile_fields = ["is_provider", "phone", "address", "city", "country", "rating"]
+        data["user"] = dict()
+        data["dashboard"] = dict()
+
+        # handle the image separately
+        if user_profile.profile_pic and user_profile.profile_pic.name:
+            data['user']["profile_pic"] = user_profile.profile_pic.url
+        else:
+            data["user"]["profile_pic"] = None
+
+        for field in user_fields:
+            data["user"][field] = getattr(user, field)
+
+        for field in user_profile_fields:
+            data["user"][field] = getattr(user_profile, field)
+
+        if user_profile.is_provider:
+            try:
+                provider = Provider.objects.get(userprofile_ptr_id=user_profile.id)
+                data['user']["bio"] = provider.description
+                data['dashboard']["items"] = AutoPart.objects.filter(provider=provider).count()
+
+            except Provider.DoesNotExist:
+                raise exceptions.AuthenticationFailed(
+                    "No active account found with the given credentials"
+                )
+
         return data
 
 
