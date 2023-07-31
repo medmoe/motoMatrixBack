@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
@@ -6,6 +7,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from components.models import AutoPart
 from .models import UserProfile, Provider, Consumer
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
 
@@ -18,7 +20,16 @@ class SignupView(APIView):
         if serializer.is_valid():
             user_profile = serializer.save()
             refresh = RefreshToken.for_user(user_profile.user)
-            response = Response(serializer.data, status=status.HTTP_201_CREATED)
+            data = dict()
+            user_data = serializer.data.pop('user')
+            for key, value in serializer.data.items():
+                if key != "user":
+                    user_data[key] = value
+            data['user'] = user_data
+            if data['user']["is_provider"]:
+                provider = get_object_or_404(Provider, userprofile_ptr_id=user_profile.id)
+                data['dashboard'] = {'items': AutoPart.objects.filter(provider=provider).count()}
+            response = Response({"data": data}, status=status.HTTP_201_CREATED)
             response.set_cookie(key='refresh', value=str(refresh), httponly=True)
             response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
             return response

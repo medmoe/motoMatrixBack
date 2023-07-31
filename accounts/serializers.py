@@ -29,6 +29,11 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep.pop('password', None)
+        return rep
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer()
