@@ -101,7 +101,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['access'] = str(refresh.access_token)
 
         # Add extra responses here
-        user_fields = ["username", "email", "first_name", "last_name"]
+        user_fields = ["user_id", "username", "email", "first_name", "last_name"]
         user_profile_fields = ["is_provider", "phone", "address", "city", "country", "rating"]
         data["user"] = dict()
         data["dashboard"] = dict()
@@ -113,7 +113,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             data["user"]["profile_pic"] = None
 
         for field in user_fields:
-            data["user"][field] = getattr(user, field)
+            if field == "user_id":
+                data["user"][field] = user.id
+            else:
+                data["user"][field] = getattr(user, field)
 
         for field in user_profile_fields:
             data["user"][field] = getattr(user_profile, field)
