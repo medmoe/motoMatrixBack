@@ -141,8 +141,11 @@ class ProviderSerializer(UserProfileSerializer):
         fields = UserProfileSerializer.Meta.fields + ['provider_type', 'description']
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user')
-        UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
+        user_data = validated_data.pop('user', None)
+        if user_data:
+            password = user_data.pop('password', None)
+            if password:
+                UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()

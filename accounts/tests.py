@@ -130,10 +130,12 @@ class AccountsTestCases(APITestCase):
 
     def test_provider_can_update_profile_information(self):
         _ = self.sign_up(is_provider=True, login=False)
+
         # activate the provider's account
         provider = Provider.objects.first()
         provider.account_status = 'approved'
         provider.save()
+
         # log the provider in
         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
@@ -141,22 +143,31 @@ class AccountsTestCases(APITestCase):
         self.assertIn("dashboard", login_response.data)
 
         # update the phone number and address
-        updated_data = self.sign_up_data
-        updated_data['phone'] = '666 666 6666'
-        updated_data['address'] = 'New Address'
-        update_response = self.client.put(
-            reverse('update_profile', args=[provider.userprofile_ptr_id]),
-            updated_data,
-            format='json')
-
+        updated_data = {'user': dict(), 'phone': '666 666 6666', 'address': 'New Address'}
+        update_response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
+                                          format='json')
         self.assertEqual(update_response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(update_response.data.get('phone'), '666 666 6666')  # check response data
         self.assertEqual(update_response.data.get('address'), 'New Address')  # check response data
 
-        # update the provider instance
-        provider = Provider.objects.first()
+        # update the provider instance and make sure that the fields are updated
+        provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
         self.assertEqual(provider.phone, '666 666 6666')
         self.assertEqual(provider.address, 'New Address')
+
+        # make sure that the rest fields remained unchanged
+        user_profile = UserProfile.objects.get(user_id=provider.userprofile_ptr_id)
+        user = User.objects.get(id=user_profile.id)
+        self.assertEqual(user.username, self.sign_up_data['user']['username'])
+        self.assertEqual(user.first_name, self.sign_up_data['user']['first_name'])
+        self.assertEqual(user.last_name, self.sign_up_data['user']['last_name'])
+        self.assertEqual(user.email, self.sign_up_data['user']['email'])
+        self.assertEqual(user_profile.is_provider, self.sign_up_data['is_provider'])
+
+        # make sure that the password did not change by log the provider in
+        login_response = self.client.post(reverse('login'), {'username': self.sign_up_data['user']['username'],
+                                                             'password': self.sign_up_data['user']['password']})
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
 
     def test_provider_cannot_update_other_users_information(self):
         # let's register the user
@@ -166,6 +177,7 @@ class AccountsTestCases(APITestCase):
         self.sign_up_data['user']['email'] = 'another_email@test.com'
         _ = self.sign_up(is_provider=True, login=False)
         self.assertEqual(Provider.objects.count(), 2)
+
         # Approve the providers
         first = Provider.objects.first()
         second = Provider.objects.last()
