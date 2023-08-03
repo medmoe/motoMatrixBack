@@ -21,11 +21,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         instance.username = validated_data.get('username', instance.username)
+        instance.first_name = validated_data.get('first_name', instance.first_name)
+        instance.last_name = validated_data.get('last_name', instance.last_name)
+        instance.email = validated_data.get('email', instance.email)
         # Make sure that the password is hashed
         if 'password' in validated_data:
             instance.set_password(validated_data.get('password', instance.password))
-        else:
-            instance.set_password(instance.password)
         instance.save()
         return instance
 
@@ -142,10 +143,7 @@ class ProviderSerializer(UserProfileSerializer):
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', None)
-        if user_data:
-            password = user_data.pop('password', None)
-            if password:
-                UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
+        UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()

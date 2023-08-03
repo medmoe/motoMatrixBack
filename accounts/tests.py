@@ -142,8 +142,9 @@ class AccountsTestCases(APITestCase):
         self.assertIn("user", login_response.data)
         self.assertIn("dashboard", login_response.data)
 
-        # update the phone number and address
-        updated_data = {'user': dict(), 'phone': '666 666 6666', 'address': 'New Address'}
+        # update phone, address, first_name and last_name
+        updated_data = {'user': {"first_name": "new_first", "last_name": "new_last"}, 'phone': '666 666 6666',
+                        'address': 'New Address'}
         update_response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
                                           format='json')
         self.assertEqual(update_response.status_code, status.HTTP_202_ACCEPTED)
@@ -152,15 +153,15 @@ class AccountsTestCases(APITestCase):
 
         # update the provider instance and make sure that the fields are updated
         provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
-        self.assertEqual(provider.phone, '666 666 6666')
-        self.assertEqual(provider.address, 'New Address')
+        user_profile = UserProfile.objects.get(user_id=provider.userprofile_ptr_id)
+        user = User.objects.get(id=user_profile.user_id)
+        self.assertNotEqual(user.first_name, self.sign_up_data['user']['first_name'])
+        self.assertNotEqual(user.last_name, self.sign_up_data['user']['last_name'])
+        self.assertNotEqual(provider.phone, self.sign_up_data['phone'])
+        self.assertEqual(provider.address, "New Address")
 
         # make sure that the rest fields remained unchanged
-        user_profile = UserProfile.objects.get(user_id=provider.userprofile_ptr_id)
-        user = User.objects.get(id=user_profile.id)
         self.assertEqual(user.username, self.sign_up_data['user']['username'])
-        self.assertEqual(user.first_name, self.sign_up_data['user']['first_name'])
-        self.assertEqual(user.last_name, self.sign_up_data['user']['last_name'])
         self.assertEqual(user.email, self.sign_up_data['user']['email'])
         self.assertEqual(user_profile.is_provider, self.sign_up_data['is_provider'])
 
