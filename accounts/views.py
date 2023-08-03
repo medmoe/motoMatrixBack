@@ -105,11 +105,12 @@ class ProfileDetail(APIView):
     def put(self, request, id):
         # make sure that the username is unique
         if 'username' in request.data['user'] and User.objects.filter(
-                username=request.data['user']['username']).exists():
+                username=request.data['user']['username']).exclude(id=request.user.id).exists():
             return Response({"detail": "Username is already in use"}, status=status.HTTP_400_BAD_REQUEST)
 
         # make sure that the email is unique
-        if 'email' in request.data['user'] and User.objects.filter(email=request.data['user']['email']).exists():
+        if 'email' in request.data['user'] and User.objects.filter(
+                email=request.data['user']['email']).exclude(id=request.user.id).exists():
             return Response({"detail": "Email is already in use"}, status=status.HTTP_400_BAD_REQUEST)
 
         account, is_provider = self.get_object(id, request)

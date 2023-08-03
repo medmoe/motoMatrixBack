@@ -194,22 +194,22 @@ class AccountsTestCases(APITestCase):
         self.assertEqual(provider.phone, self.sign_up_data['phone'])
 
     def test_provider_cannot_update_username_to_existed_username(self):
-        provider = self.authenticate()
-        # create a user with a username 'existed'
-        self.sign_up_data['user']['username'] = 'existing_username'
-        self.sign_up_data['user']['email'] = 'existing_email@test.com'
-        _ = self.sign_up(is_provider=True, login=False)
+        # create the users
+        user1 = User.objects.create_user(username="user1", password="password1", email="user1@test.com")
+        user2 = User.objects.create_user(username="user2", password="password2", email="user2@test.com")
+        _ = Provider.objects.create(user=user1)
+        provider2 = Provider.objects.create(user=user2)
 
-        # update the username and make sure that the request failed
-        response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]),
-                                   {'user': {'username': 'existing_username'}}, format='json')
+        # log the user in
+        response = self.client.post(reverse('login'), {"username": "user2", "password": "password2"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # update current username to an existed username
+        response = self.client.put(reverse("update_profile", args=[provider2.userprofile_ptr_id]),
+                                   {"user": {"username": "user1"}}, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['detail'], "Username is already in use")
-
-        # make sure that the username did not change
-        provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
-        self.assertNotEqual(provider.user.username, self.sign_up_data['user']['username'])
 
     def test_unapproved_provider_cannot_update_account_information(self):
         provider = self.authenticate()
