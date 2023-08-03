@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
@@ -102,9 +103,22 @@ class ProfileDetail(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
     def put(self, request, id):
+        # make sure that the username is unique
+        if 'username' in request.data['user'] and User.objects.filter(
+                username=request.data['user']['username']).exists():
+            return Response({"detail": "Username is already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # make sure that the email is unique
+        if 'email' in request.data['user'] and User.objects.filter(email=request.data['user']['email']).exists():
+            return Response({"detail": "Email is already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
         account, is_provider = self.get_object(id, request)
         request.data['user'].pop('username', None)
         if is_provider:
+            # make sure the account is approved
+            if account.account_status != "approved":
+                return Response({"detail": "Your account is not approved yet"}, status.HTTP_403_FORBIDDEN)
+
             serializer = ProviderSerializer(account, data=request.data)
             if serializer.is_valid():
                 serializer.save()
