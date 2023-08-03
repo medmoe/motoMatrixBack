@@ -124,7 +124,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if user_profile.is_provider:
             try:
                 provider = Provider.objects.get(userprofile_ptr_id=user_profile.id)
-                data['user']["bio"] = provider.description
+                data['user']["description"] = provider.description
                 data['dashboard']["items"] = AutoPart.objects.filter(provider=provider).count()
 
             except Provider.DoesNotExist:
