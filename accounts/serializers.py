@@ -102,7 +102,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['access'] = str(refresh.access_token)
 
         # Add extra responses here
-        user_fields = ["user_id", "username", "email", "first_name", "last_name"]
+        user_fields = ["id", "username", "email", "first_name", "last_name"]
         user_profile_fields = ["is_provider", "phone", "address", "city", "country", "rating"]
         data["user"] = dict()
         data["dashboard"] = dict()
