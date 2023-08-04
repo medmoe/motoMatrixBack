@@ -6,8 +6,8 @@ from .views import \
     CustomTokenObtainPairView, \
     CustomTokenRefreshView, \
     ProfileDetail, \
-    CheckAuthView, \
-    FileUpload
+    FileUpload, \
+    CheckAuthView
 
 urlpatterns = [
     path('signup/', SignupView.as_view(), name="signup"),
