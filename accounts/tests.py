@@ -1,8 +1,11 @@
+import tempfile
+import os
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-
+from PIL import Image
 from .models import UserProfile, Provider
 
 
@@ -240,3 +243,36 @@ class AccountsTestCases(APITestCase):
         self.assertEqual(response.data['detail'], "You do not have permission to perform this action")
         provider2 = Provider.objects.get(userprofile_ptr_id=provider2.userprofile_ptr_id)
         self.assertEqual(provider2.user.username, "user2")
+
+    def test_image_upload(self):
+        user = User.objects.create_user(username="username", password="password", email="test@test.com")
+        provider = Provider.objects.create(user=user, is_provider=True, account_status="approved")
+        response = self.client.post(reverse('login'),
+                                    {"username": "username", "password": "password"},
+                                    format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # create a simple image
+        image = Image.new('RGB', (100, 100))
+
+        # write image data to a file
+        temp_image = tempfile.NamedTemporaryFile(suffix='.jpg')
+        image.save(temp_image)
+
+        # Get the data from the image file
+        temp_image.seek(0)
+
+        # create a simpleUploadedFile object
+        uploaded_image = SimpleUploadedFile(
+            name='test_image.jpg',
+            content=temp_image.read(),
+            content_type='image/jpeg',
+        )
+        # create a dictionary of the form data
+        data = {
+            'profile_pic': uploaded_image
+        }
+        # make an update request
+        response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(os.path.exists("./media/test_image.jpg"))

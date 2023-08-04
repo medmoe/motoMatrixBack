@@ -84,23 +84,24 @@ class CustomTokenRefreshView(TokenRefreshView):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def get_object(id, request):
+    try:
+        account = UserProfile.objects.get(id=id)
+        if account != request.user.userprofile:
+            raise PermissionDenied("You do not have permission to perform this action")
+
+        if account.is_provider:
+            provider = Provider.objects.get(userprofile_ptr_id=id)
+            return provider, True
+        consumer = Consumer.objects.get(userprofile_ptr_id=id)
+        return consumer, False
+
+    except UserProfile.DoesNotExist:
+        return Response(status=status.HTTP_404_NOT_FOUND)
+
+
 class ProfileDetail(APIView):
     permission_classes = (permissions.IsAuthenticated,)
-
-    def get_object(self, id, request):
-        try:
-            account = UserProfile.objects.get(id=id)
-            if account != request.user.userprofile:
-                raise PermissionDenied("You do not have permission to perform this action")
-
-            if account.is_provider:
-                provider = Provider.objects.get(userprofile_ptr_id=id)
-                return provider, True
-            consumer = Consumer.objects.get(user_profile_ptr=id)
-            return consumer, False
-
-        except UserProfile.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
 
     def put(self, request, id):
         # make sure that the username is unique
@@ -113,7 +114,7 @@ class ProfileDetail(APIView):
                 email=request.data['user']['email']).exclude(id=request.user.id).exists():
             return Response({"detail": "Email is already in use"}, status=status.HTTP_400_BAD_REQUEST)
 
-        account, is_provider = self.get_object(id, request)
+        account, is_provider = get_object(id, request)
         request.data['user'].pop('username', None)
         if is_provider:
             # make sure the account is approved
@@ -136,3 +137,29 @@ class CheckAuthView(APIView):
 
     def get(self, request):
         return Response({"detail": "You are authenticated"})
+
+
+class FileUpload(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def put(self, request, id):
+        account, is_provider = get_object(id, request)
+
+        # check if the file has been sent with the request
+        if 'profile_pic' not in request.FILES:
+            return Response({"detail": "No File provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # get the file from the request
+        file = request.FILES['profile_pic']
+
+        # Assign the file to the account
+        account.profile_pic = file
+        account.save()
+
+        # get the url of the saved file
+        file_url = request.build_absolute_uri(account.profile_pic.url)
+
+        return Response({'detail': "File uploaded successfully", 'file': file_url}, status=status.HTTP_200_OK)
+
+
+

@@ -8,7 +8,7 @@ class UserProfile(models.Model):
     # One-to-One relation with Django User
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     # Common fields
-    profile_pic = models.ImageField(upload_to='profile_pics', blank=True)
+    profile_pic = models.ImageField(upload_to='', blank=True)
     is_provider = models.BooleanField(default=False)
     phone = models.CharField(max_length=20, blank=True)
     address = models.CharField(max_length=200, blank=True)
