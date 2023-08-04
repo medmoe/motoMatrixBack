@@ -160,6 +160,3 @@ class FileUpload(APIView):
         file_url = request.build_absolute_uri(account.profile_pic.url)
 
         return Response({'detail': "File uploaded successfully", 'file': file_url}, status=status.HTTP_200_OK)
-
-
-
