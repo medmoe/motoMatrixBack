@@ -125,7 +125,9 @@ class ProfileDetail(APIView):
             serializer = ProviderSerializer(account, data=request.data)
             if serializer.is_valid():
                 serializer.save()
-                return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+                response_data = serializer.data.copy()
+                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
+                return Response(response_data, status=status.HTTP_202_ACCEPTED)
         else:
             serializer = ConsumerSerializer(account, data=request.data)
             if serializer.is_valid():
@@ -147,11 +149,11 @@ class FileUpload(APIView):
         account, is_provider = get_object(id, request)
 
         # check if the file has been sent with the request
-        if 'file' not in request.FILES:
+        if 'profile_pic' not in request.FILES:
             return Response({"detail": "No File provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         # get the file from the request
-        file = request.FILES['file']
+        file = request.FILES['profile_pic']
 
         # Assign the file to the account
         account.profile_pic = file

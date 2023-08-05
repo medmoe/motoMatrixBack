@@ -273,6 +273,5 @@ class AccountsTestCases(APITestCase):
         }
         # make an update request
         response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(os.path.exists("./media/test_image.jpg"))
