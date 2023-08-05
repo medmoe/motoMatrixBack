@@ -60,6 +60,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
+        response.data['user']['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
         return response
@@ -146,11 +147,11 @@ class FileUpload(APIView):
         account, is_provider = get_object(id, request)
 
         # check if the file has been sent with the request
-        if 'profile_pic' not in request.FILES:
+        if 'file' not in request.FILES:
             return Response({"detail": "No File provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         # get the file from the request
-        file = request.FILES['profile_pic']
+        file = request.FILES['file']
 
         # Assign the file to the account
         account.profile_pic = file
