@@ -1,3 +1,5 @@
+import os
+
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
@@ -7,6 +9,8 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 from components.models import AutoPart
 from .models import UserProfile, Provider, Consumer
@@ -30,10 +34,27 @@ class SignupView(APIView):
             if data['user']["is_provider"]:
                 provider = get_object_or_404(Provider, userprofile_ptr_id=user_profile.id)
                 data['dashboard'] = {'items': AutoPart.objects.filter(provider=provider).count()}
-            response = Response({"data": data}, status=status.HTTP_201_CREATED)
-            response.set_cookie(key='refresh', value=str(refresh), httponly=True)
-            response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
-            return response
+
+            # send email verification
+            message = Mail(
+                from_email='partsplaza23@gmail.com',
+                to_emails=data['user']['email'],
+                subject="Account Verification",
+                html_content='<p> Your account is created successfully!'
+            )
+            try:
+                sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+                res = sg.send(message)
+                print(res.status_code)
+                print(res.body)
+                print(res.headers)
+            except Exception as e:
+                print(e.args)
+            finally:
+                response = Response({"data": data}, status=status.HTTP_201_CREATED)
+                response.set_cookie(key='refresh', value=str(refresh), httponly=True)
+                response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
+                return response
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

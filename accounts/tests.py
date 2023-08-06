@@ -1,11 +1,17 @@
-import tempfile
 import os
+import tempfile
+from unittest.mock import patch
+
+from PIL import Image
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-from PIL import Image
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+
 from .models import UserProfile, Provider
 
 
@@ -275,3 +281,30 @@ class AccountsTestCases(APITestCase):
         response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(os.path.exists("./media/test_image.jpg"))
+
+
+class EmailTest(TestCase):
+    @patch('sendgrid.SendGridAPIClient.send')
+    def test_send_email(self, mock_send):
+        # create a sample email
+        message = Mail(
+            from_email='partsplaza23@gmail.com',
+            to_emails='med.seffah@gmail.com',
+            subject='Account verification',
+            html_content='<p> your account is created successfully'
+        )
+
+        # send the email
+        sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+        sg.send(message)
+
+        # assert that the send method was called
+        self.assertTrue(mock_send.called)
+
+        # Get the args that the send method was called with
+        args, kwargs = mock_send.call_args
+
+        # Now we can make assertions about the email that was sent
+        email = args[0]
+        self.assertEqual(email._from_email.email, 'partsplaza23@gmail.com')
+        self.assertIn("Account verification", str(email))
