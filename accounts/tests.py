@@ -5,6 +5,7 @@ from unittest.mock import patch
 from PIL import Image
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from utils.helpers import create_image
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -257,25 +258,10 @@ class AccountsTestCases(APITestCase):
                                     {"username": "username", "password": "password"},
                                     format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # create a simple image
-        image = Image.new('RGB', (100, 100))
 
-        # write image data to a file
-        temp_image = tempfile.NamedTemporaryFile(suffix='.jpg')
-        image.save(temp_image)
-
-        # Get the data from the image file
-        temp_image.seek(0)
-
-        # create a simpleUploadedFile object
-        uploaded_image = SimpleUploadedFile(
-            name='test_image.jpg',
-            content=temp_image.read(),
-            content_type='image/jpeg',
-        )
         # create a dictionary of the form data
         data = {
-            'profile_pic': uploaded_image
+            'profile_pic': create_image()
         }
         # make an update request
         response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')

@@ -1,9 +1,12 @@
+import tempfile
+
+from PIL import Image
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.test import APITestCase
-
+from utils.helpers import create_image
 from accounts.models import Provider
 from .models import AutoPart
 from .types import CATEGORY, CONDITION
@@ -140,3 +143,22 @@ class AutoPartTestCases(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(AutoPart.objects.count(), 1)
         self.assertEqual(AutoPart.objects.get().name, 'name')
+
+
+class ImageCreationTestCases(APITestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="username", password="password", email="test@test.com")
+        self.provider = Provider.objects.create(user=self.user, is_provider=True, account_status="approved")
+
+    def test_provider_can_upload_auto_part_image(self):
+        # Authenticate the user
+        response = self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Upload the image
+        response = self.client.post(reverse('upload-image'), {'image': create_image()}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(AutoPart.objects.count(), 1)
+        self.assertIs(AutoPart.objects.first().provider.id, self.provider.id)
+        self.assertTrue(AutoPart.objects.first().image)
+
+

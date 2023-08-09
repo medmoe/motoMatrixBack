@@ -3,7 +3,7 @@ import os
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -13,7 +13,9 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from components.models import AutoPart
-from .models import UserProfile, Provider, Consumer
+from utils.helpers import get_object
+from utils.validators import validate_image
+from .models import Provider
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
 
 
@@ -106,22 +108,6 @@ class CustomTokenRefreshView(TokenRefreshView):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def get_object(id, request):
-    try:
-        account = UserProfile.objects.get(id=id)
-        if account != request.user.userprofile:
-            raise PermissionDenied("You do not have permission to perform this action")
-
-        if account.is_provider:
-            provider = Provider.objects.get(userprofile_ptr_id=id)
-            return provider, True
-        consumer = Consumer.objects.get(userprofile_ptr_id=id)
-        return consumer, False
-
-    except UserProfile.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-
 class ProfileDetail(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
@@ -171,10 +157,13 @@ class FileUpload(APIView):
 
         # check if the file has been sent with the request
         if 'profile_pic' not in request.FILES:
-            return Response({"detail": "No File provided"}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationError(detail="No file provided")
 
         # get the file from the request
         file = request.FILES['profile_pic']
+
+        if not validate_image(file):
+            raise ValidationError(detail="Uploaded file is not a valid image")
 
         # Assign the file to the account
         account.profile_pic = file
@@ -183,4 +172,4 @@ class FileUpload(APIView):
         # get the url of the saved file
         file_url = request.build_absolute_uri(account.profile_pic.url)
 
-        return Response({'detail': "File uploaded successfully", 'file': file_url}, status=status.HTTP_200_OK)
+        return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_201_CREATED)
