@@ -1,6 +1,5 @@
 import os
 
-from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.exceptions import ValidationError
@@ -23,7 +22,7 @@ class SignupView(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def post(self, request):
-        serializer = UserProfileSerializer(data=request.data)
+        serializer = UserProfileSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             user_profile = serializer.save()
             refresh = RefreshToken.for_user(user_profile.user)
@@ -46,7 +45,7 @@ class SignupView(APIView):
             )
             try:
                 sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-                res = sg.send(message)  # Send grid response here for future uses
+                _ = sg.send(message)  # Send grid response here for future uses
             except Exception as e:
                 print(e.args)
             finally:
@@ -165,4 +164,4 @@ class FileUpload(APIView):
         # get the url of the saved file
         file_url = request.build_absolute_uri(account.profile_pic.url)
 
-        return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_201_CREATED)
+        return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_202_ACCEPTED)

@@ -1,13 +1,11 @@
-import tempfile
-
-from PIL import Image
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.test import APITestCase
-from utils.helpers import create_file
+
 from accounts.models import Provider, Consumer
+from utils.helpers import create_file
 from .models import AutoPart
 from .types import CATEGORY, CONDITION
 

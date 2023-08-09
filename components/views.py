@@ -85,6 +85,6 @@ class ImageCreation(APIView):
             raise ValidationError(detail="Uploaded file is not a valid image")
 
         # Create auto part object with the data we have so far
-        auto_part = AutoPart.objects.create(image=file, provider=provider)
+        _ = AutoPart.objects.create(image=file, provider=provider)
 
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)
