@@ -68,15 +68,18 @@ class ImageCreation(APIView):
                 raise ValidationError(detail="You don't have permission to perform this action")
 
             provider = Provider.objects.get(userprofile_ptr_id=userprofile.id)
+            if provider.account_status != "approved":
+                raise ValidationError(detail="You don't have permission to perform this action")
+
         except UserProfile.DoesNotExist:
             raise NotFound(detail="User profile not found")
 
         # check if the file has been sent with the request
-        if 'image' not in request.FILES:
+        if 'file' not in request.FILES:
             raise ValidationError(detail="No file provided")
 
         # get the file from the request
-        file = request.FILES['image']
+        file = request.FILES['file']
 
         if not validate_image(file):
             raise ValidationError(detail="Uploaded file is not a valid image")

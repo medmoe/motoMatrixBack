@@ -1,11 +1,7 @@
 import os
-import tempfile
 from unittest.mock import patch
 
-from PIL import Image
 from django.contrib.auth.models import User
-from django.core.files.uploadedfile import SimpleUploadedFile
-from utils.helpers import create_image
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -13,260 +9,429 @@ from rest_framework.test import APITestCase
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
-from .models import UserProfile, Provider
+from utils.helpers import create_file
+from .models import Provider, Consumer, UserProfile
 
 
-class AccountsTestCases(APITestCase):
-
+class SignUpTestCases(APITestCase):
     def setUp(self):
-        self.sign_up_data = {
+        self.data = {
             'user': {
-                'first_name': 'first_name',
-                'last_name': 'last_name',
-                'username': 'newusername',
-                'password': 'newpassword',
-                'email': 'new@test.com'
+                "username": "newusername",
+                "password": 'newpassword',
+                "email": 'test@test.com',
             },
-            'phone': '555 555 5555',
-            'is_provider': False,
+            'is_provider': True,
         }
-        self.sign_in_data = {
-            'username': 'newusername',
-            'password': 'newpassword'
-        }
+        self.existed_user = User.objects.create_user(username='existed_user',
+                                                     password="password",
+                                                     email="existed@test.com")
 
-    def sign_up(self, is_provider=False, login=True):
-        self.sign_up_data['is_provider'] = is_provider
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+    def test_user_can_sign_up(self):
+        response = self.client.post(reverse('signup'), self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # login
-        if login:
-            response = self.client.post(reverse('login'), self.sign_in_data)
-            if not is_provider:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertIn('access', response.data)
-                self.assertIn('refresh', response.data)
-            return response
-        return response
-
-    def authenticate(self):
-        _ = self.sign_up(is_provider=True, login=False)
-
-        # activate the provider's account
-        provider = Provider.objects.first()
-        provider.account_status = 'approved'
-        provider.save()
-
-        # log the provider in
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-        self.assertIn("user", login_response.data)
-        self.assertIn("dashboard", login_response.data)
-        return provider
-
-    def test_consumer_signup(self):
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.count(), 1)
-        latest_profile = UserProfile.objects.order_by('-id').first()
-        self.assertIs(latest_profile.is_provider, False)
-        self.assertEqual(latest_profile.user.first_name, self.sign_up_data['user']['first_name'])
-        self.assertEqual(latest_profile.user.last_name, self.sign_up_data['user']['last_name'])
-        self.assertEqual(latest_profile.user.username, self.sign_up_data['user']['username'])
-        self.assertEqual(latest_profile.user.email, self.sign_up_data['user']['email'])
-        self.assertEqual(latest_profile.phone, self.sign_up_data['phone'])
-
-    def test_provider_signup(self):
-        self.sign_up_data['is_provider'] = True
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.count(), 1)
-        latest_profile = UserProfile.objects.order_by('-id').first()
-        self.assertIs(latest_profile.is_provider, True)
-        provider = Provider.objects.get(userprofile_ptr_id=latest_profile.id)
-        self.assertEqual(provider.account_status, 'pending')
-
-    def test_duplicate_username(self):
-        # First signup
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Second signup with the same username
-        self.sign_up_data['user']['email'] = 'another@email.co'
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data[0], "Username already exists")
-
-    def test_duplicate_email(self):
-        # First signup
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Second signup with the same data
-        self.sign_up_data['user']['username'] = 'anotherusername'
-        response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
-        self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data[0], "Email already exists")
-
-    def test_provider_login(self):
-        response = self.sign_up(is_provider=True)
-        self.assertEqual(response.data['detail'], 'Your account is not approved yet')
-
-    def test_logout(self):
-        # signup
-        response = self.sign_up()
-        self.client.cookies['refresh'] = response.data['refresh']
-        logout_response = self.client.post(reverse('logout'))
-        self.assertEqual(logout_response.status_code, status.HTTP_205_RESET_CONTENT)
-
-    def test_logout_fail_on_wrong_refresh_token(self):
-        # signup
-        _ = self.sign_up()
-        # set token to the client as a cookie
-        self.client.cookies['refresh'] = "wrongrefresh"
-        logout_response = self.client.post(reverse('logout'))
-        self.assertEqual(logout_response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_login_fail_on_wrong_credentials(self):
-        # signup
-        _ = self.sign_up(login=False)
-        # login
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(login_response.data['detail'], 'No active account found with the given credentials')
-
-    def test_login_fail_on_user_does_not_exist(self):
-        # login
-        login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
-        self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(login_response.data['detail'], 'No active account found with the given credentials')
-
-    def test_refresh_tokens(self):
-        # signup
-        response = self.sign_up()
-        # added refresh and access token to the client cookie
-        self.client.cookies['refresh'] = response.data['refresh']
-        self.client.cookies['access'] = response.data['access']
-        # refresh
-        refresh_response = self.client.post(reverse('refresh'))
-        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', refresh_response.data)
-        self.assertNotEquals(refresh_response.data['access'], response.data['access'])
-
-    def test_provider_can_update_profile_information(self):
-        provider = self.authenticate()
-        # update phone, address, first_name and last_name
-        updated_data = {'user': {"first_name": "new_first", "last_name": "new_last"}, 'phone': '666 666 6666',
-                        'address': 'New Address'}
-        update_response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
-                                          format='json')
-        self.assertEqual(update_response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(update_response.data.get('phone'), '666 666 6666')  # check response data
-        self.assertEqual(update_response.data.get('address'), 'New Address')  # check response data
-
-        # update the provider instance and make sure that the fields are updated
-        provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
-        self.assertNotEqual(provider.user.first_name, self.sign_up_data['user']['first_name'])
-        self.assertNotEqual(provider.user.last_name, self.sign_up_data['user']['last_name'])
-        self.assertNotEqual(provider.phone, self.sign_up_data['phone'])
-        self.assertEqual(provider.address, "New Address")
-
-        # make sure that the rest fields remained unchanged
-        self.assertEqual(provider.user.username, self.sign_up_data['user']['username'])
-        self.assertEqual(provider.user.email, self.sign_up_data['user']['email'])
-        self.assertEqual(provider.is_provider, self.sign_up_data['is_provider'])
-
-        # make sure that the password did not change by log the provider in
-        login_response = self.client.post(reverse('login'), {'username': self.sign_up_data['user']['username'],
-                                                             'password': self.sign_up_data['user']['password']})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-
-    def test_provider_can_update_password(self):
-        provider = self.authenticate()
-
-        # update the password
-        updated_data = {'user': {"password": "pass_phrase"}}
-        response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
-                                   format='json')
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-
-        # make sure that the password has updated
-        login_response = self.client.post(reverse('login'), {'username': self.sign_up_data['user']['username'],
-                                                             'password': 'pass_phrase'})
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-
-        # make sure that other fields remained unchanged
-        provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
-        self.assertEqual(provider.user.first_name, self.sign_up_data['user']['first_name'])
-        self.assertEqual(provider.user.last_name, self.sign_up_data['user']['last_name'])
-        self.assertEqual(provider.user.email, self.sign_up_data['user']['email'])
-        self.assertEqual(provider.user.username, self.sign_up_data['user']['username'])
-        self.assertEqual(provider.phone, self.sign_up_data['phone'])
-
-    def test_provider_cannot_update_username_to_existed_username(self):
-        # create the users
-        user1 = User.objects.create_user(username="user1", password="password1", email="user1@test.com")
-        user2 = User.objects.create_user(username="user2", password="password2", email="user2@test.com")
-        _ = Provider.objects.create(user=user1)
-        provider2 = Provider.objects.create(user=user2)
-
-        # log the user in
-        response = self.client.post(reverse('login'), {"username": "user2", "password": "password2"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # update current username to an existed username
-        response = self.client.put(reverse("update_profile", args=[provider2.userprofile_ptr_id]),
-                                   {"user": {"username": "user1"}}, format='json')
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['detail'], "Username is already in use")
-
-    def test_unapproved_provider_cannot_update_account_information(self):
-        provider = self.authenticate()
-        provider.account_status = "pending"
-        provider.save()
-        response = self.client.put(reverse("update_profile", args=[provider.userprofile_ptr_id]),
-                                   {"user": {"username": "updated_username"}}, format='json')
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data['detail'], "Your account is not approved yet")
-        self.assertNotEqual(provider.user.username, "updated_username")
-
-    def test_user_cannot_update_other_user_information(self):
-        # create the users
-        user1 = User.objects.create_user(username="user1", password="password1", email="user1@test.com")
-        user2 = User.objects.create_user(username="user2", password="password2", email="user2@test.com")
-        _ = Provider.objects.create(user=user1)
-        provider2 = Provider.objects.create(user=user2)
         self.assertEqual(User.objects.count(), 2)
-        self.assertEqual(Provider.objects.count(), 2)
+        created_user = User.objects.get(id=response.data['user']['id'])
+        self.assertEqual(created_user.username, self.data['user']['username'])
+        self.assertEqual(created_user.email, self.data['user']['email'])
+        self.assertNotEqual(created_user.password, self.data['user']['password'])
 
-        # log the user and make an update call to the other user field
-        response = self.client.post(reverse('login'), {"username": "user1", "password": "password1"}, format='json')
+    def test_user_must_provide_username(self):
+        self.data['user'].pop("username")
+        response = self.client.post(reverse('signup'), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_user_must_provide_email(self):
+        self.data['user'].pop("email")
+        response = self.client.post(reverse('signup'), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_user_cannot_sign_up_with_an_existed_username(self):
+        self.data['user']["username"] = self.existed_user.username
+        response = self.client.post(reverse('signup'), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotEqual(User.objects.count(), 2)
+
+    def test_user_cannot_sign_up_with_an_existed_email(self):
+        self.data['user']["email"] = self.existed_user.email
+        response = self.client.post(reverse('signup'), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotEqual(User.objects.count(), 2)
+
+
+class LoginTestCases(APITestCase):
+    def setUp(self) -> None:
+        self.existed_user = User.objects.create_user(username="existed_user", password="password",
+                                                     email="test@test.com")
+        self.provider = Provider.objects.create(user=self.existed_user, is_provider=True, account_status="approved")
+
+    def test_provider_can_login(self) -> None:
+        response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.put(reverse('update_profile', args=[provider2.userprofile_ptr_id]),
-                                   {"user": {"username": "updated_username"}}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data['detail'], "You do not have permission to perform this action")
-        provider2 = Provider.objects.get(userprofile_ptr_id=provider2.userprofile_ptr_id)
-        self.assertEqual(provider2.user.username, "user2")
+        # make sure that the data is returned in the response
+        self.assertEqual(response.data['user']['username'], self.existed_user.username)
+        self.assertEqual(response.data['user']['email'], self.existed_user.email)
+        # make sure that the password is not included in the response
+        self.assertNotIn("password", response.data['user'])
 
-    def test_image_upload(self):
-        user = User.objects.create_user(username="username", password="password", email="test@test.com")
-        provider = Provider.objects.create(user=user, is_provider=True, account_status="approved")
+    def test_pending_provider_cannot_login(self):
+        self.provider.account_status = "pending"
+        self.provider.save(0)
+        response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn('user', response.data)
+        self.assertEqual(response.data['detail'], "Your account is not approved yet")
+
+    def test_consumer_can_login(self):
+        another_user = User.objects.create_user(username="another_user", password="password", email="other@test.com")
+        consumer = Consumer.objects.create(user=another_user, is_provider=False)
+        response = self.client.post(reverse("login"), {"username": "another_user", "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('user', response.data)
+        self.assertEqual(response.data['user']['username'], consumer.user.username)
+        self.assertEqual(response.data['user']['email'], consumer.user.email)
+        self.assertEqual(response.data['user']['is_provider'], consumer.is_provider)
+
+    def test_user_cannot_login_with_wrong_credentials(self):
+        response = self.client.post(reverse('login'), {"username": "does not exist", "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn('user', response.data)
+        self.assertEqual(response.data['detail'], "No active account found with the given credentials")
+
+
+class LogoutTestCases(APITestCase):
+    def setUp(self):
+        self.consumer_user = User.objects.create_user(username="consumer", password="password", email="consumer@test.com")
+        self.provider_user = User.objects.create_user(username="provider", password="password", email="provider@test.com")
+        self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
+        self.provider = Provider.objects.create(user=self.provider_user, is_provider=True, account_status="approved")
+
+    def test_consumer_can_log_out(self):
+        # Authenticate the consumer first
+        response = self.client.post(reverse('login'), {"username": "consumer", "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Logout
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+
+    def test_provider_can_log_out(self):
+        # Authenticate the provider
+        response = self.client.post(reverse('login'), {"username": "provider", "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Logout
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+
+
+class UpdateAccountTestCases(APITestCase):
+    def setUp(self):
+        self.consumer_user_one = User.objects.create_user(username="consumer1", password="password", email="consumer1@test.com")
+        self.consumer_user_two = User.objects.create_user(username="consumer2", password="password", email="consumer2@text.com")
+        self.provider_user_one = User.objects.create_user(username="provider1", password="password", email="provider1@test.com")
+        self.provider_user_two = User.objects.create_user(username="provider2", password="password", email="provider2@test.com")
+        self.consumer_one = Consumer.objects.create(user=self.consumer_user_one, is_provider=False)
+        self.consumer_two = Consumer.objects.create(user=self.consumer_user_two, is_provider=False)
+        self.provider_one = Provider.objects.create(user=self.provider_user_one, is_provider=True, account_status="approved")
+        self.provider_two = Provider.objects.create(user=self.provider_user_two, is_provider=True, account_status="approved")
+        self.data = {
+            "user": {
+                "username": "updated_username",
+                "email": "updated@test.com",
+                "first_name": "updated_first_name",
+                "last_name": "updated_last_name",
+                "password": "updated_password",
+            },
+            "phone": "updated_phone",
+            "address": "updated_address",
+            "city": "updated_city",
+            "country": "updated_country",
+        }
+
+    def authenticate_user_and_update_account(self, username, account, password="password"):
+        response = self.client.post(reverse('login'), {"username": username, "password": password}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # update account information
+        response = self.client.put(reverse('update_profile', args=[account.userprofile_ptr_id]), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertIn('user', response.data)
+        updated_account = UserProfile.objects.get(id=account.userprofile_ptr_id)
+        self.assertEqual(updated_account.user.username, self.data['user']['username'])
+        self.assertEqual(updated_account.user.email, self.data['user']['email'])
+        self.assertEqual(updated_account.user.first_name, self.data['user']['first_name'])
+        self.assertEqual(updated_account.user.last_name, self.data['user']['last_name'])
+        self.assertEqual(updated_account.phone, self.data['phone'])
+        self.assertEqual(updated_account.address, self.data['address'])
+        self.assertEqual(updated_account.city, self.data['city'])
+        self.assertEqual(updated_account.country, self.data['country'])
+        # make sure that the password is updated as well
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        # Authenticate the user
         response = self.client.post(reverse('login'),
-                                    {"username": "username", "password": "password"},
+                                    {"username": self.data['user']['username'], "password": self.data['user']['password']},
                                     format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # create a dictionary of the form data
-        data = {
-            'profile_pic': create_image()
-        }
-        # make an update request
-        response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(os.path.exists("./media/test_image.jpg"))
+    def test_consumer_can_update_account_information(self):
+        self.authenticate_user_and_update_account(username=self.consumer_one.user.username, account=self.consumer_one)
+
+    def test_provider_can_update_profile_information(self):
+        self.authenticate_user_and_update_account(username=self.provider_one.user.username, account=self.provider_one)
+
+
+# class AccountsTestCases(APITestCase):
+#
+#     def setUp(self):
+#         self.sign_up_data = {
+#             'user': {
+#                 'first_name': 'first_name',
+#                 'last_name': 'last_name',
+#                 'username': 'newusername',
+#                 'password': 'newpassword',
+#                 'email': 'new@test.com'
+#             },
+#             'phone': '555 555 5555',
+#             'is_provider': False,
+#         }
+#         self.sign_in_data = {
+#             'username': 'newusername',
+#             'password': 'newpassword'
+#         }
+#
+#     def sign_up(self, is_provider=False, login=True):
+#         self.sign_up_data['is_provider'] = is_provider
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#         # login
+#         if login:
+#             response = self.client.post(reverse('login'), self.sign_in_data)
+#             if not is_provider:
+#                 self.assertEqual(response.status_code, status.HTTP_200_OK)
+#                 self.assertIn('access', response.data)
+#                 self.assertIn('refresh', response.data)
+#             return response
+#         return response
+#
+#     def authenticate(self):
+#         _ = self.sign_up(is_provider=True, login=False)
+#
+#         # activate the provider's account
+#         provider = Provider.objects.first()
+#         provider.account_status = 'approved'
+#         provider.save()
+#
+#         # log the provider in
+#         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'newpassword'})
+#         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+#         self.assertIn("user", login_response.data)
+#         self.assertIn("dashboard", login_response.data)
+#         return provider
+#
+#     def test_consumer_signup(self):
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#         self.assertEqual(User.objects.count(), 1)
+#         latest_profile = UserProfile.objects.order_by('-id').first()
+#         self.assertIs(latest_profile.is_provider, False)
+#         self.assertEqual(latest_profile.user.first_name, self.sign_up_data['user']['first_name'])
+#         self.assertEqual(latest_profile.user.last_name, self.sign_up_data['user']['last_name'])
+#         self.assertEqual(latest_profile.user.username, self.sign_up_data['user']['username'])
+#         self.assertEqual(latest_profile.user.email, self.sign_up_data['user']['email'])
+#         self.assertEqual(latest_profile.phone, self.sign_up_data['phone'])
+#
+#     def test_provider_signup(self):
+#         self.sign_up_data['is_provider'] = True
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#         self.assertEqual(User.objects.count(), 1)
+#         latest_profile = UserProfile.objects.order_by('-id').first()
+#         self.assertIs(latest_profile.is_provider, True)
+#         provider = Provider.objects.get(userprofile_ptr_id=latest_profile.id)
+#         self.assertEqual(provider.account_status, 'pending')
+#
+#     def test_duplicate_username(self):
+#         # First signup
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#
+#         # Second signup with the same username
+#         self.sign_up_data['user']['email'] = 'another@email.co'
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
+#         self.assertEqual(response.data[0], "Username already exists")
+#
+#     def test_duplicate_email(self):
+#         # First signup
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+#
+#         # Second signup with the same data
+#         self.sign_up_data['user']['username'] = 'anotherusername'
+#         response = self.client.post(reverse('signup'), self.sign_up_data, format='json')
+#         self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
+#         self.assertEqual(response.data[0], "Email already exists")
+#
+#     def test_provider_login(self):
+#         response = self.sign_up(is_provider=True)
+#         self.assertEqual(response.data['detail'], 'Your account is not approved yet')
+#
+#     def test_logout(self):
+#         # signup
+#         response = self.sign_up()
+#         self.client.cookies['refresh'] = response.data['refresh']
+#         logout_response = self.client.post(reverse('logout'))
+#         self.assertEqual(logout_response.status_code, status.HTTP_205_RESET_CONTENT)
+#
+#     def test_logout_fail_on_wrong_refresh_token(self):
+#         # signup
+#         _ = self.sign_up()
+#         # set token to the client as a cookie
+#         self.client.cookies['refresh'] = "wrongrefresh"
+#         logout_response = self.client.post(reverse('logout'))
+#         self.assertEqual(logout_response.status_code, status.HTTP_400_BAD_REQUEST)
+#
+#     def test_login_fail_on_wrong_credentials(self):
+#         # signup
+#         _ = self.sign_up(login=False)
+#         # login
+#         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
+#         self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
+#         self.assertEqual(login_response.data['detail'], 'No active account found with the given credentials')
+#
+#     def test_login_fail_on_user_does_not_exist(self):
+#         # login
+#         login_response = self.client.post(reverse('login'), {'username': 'newusername', 'password': 'wrongpassword'})
+#         self.assertEqual(login_response.status_code, status.HTTP_401_UNAUTHORIZED)
+#         self.assertEqual(login_response.data['detail'], 'No active account found with the given credentials')
+#
+#     def test_refresh_tokens(self):
+#         # signup
+#         response = self.sign_up()
+#         # added refresh and access token to the client cookie
+#         self.client.cookies['refresh'] = response.data['refresh']
+#         self.client.cookies['access'] = response.data['access']
+#         # refresh
+#         refresh_response = self.client.post(reverse('refresh'))
+#         self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+#         self.assertIn('access', refresh_response.data)
+#         self.assertNotEquals(refresh_response.data['access'], response.data['access'])
+#
+#     def test_provider_can_update_profile_information(self):
+#         provider = self.authenticate()
+#         # update phone, address, first_name and last_name
+#         updated_data = {'user': {"first_name": "new_first", "last_name": "new_last"}, 'phone': '666 666 6666',
+#                         'address': 'New Address'}
+#         update_response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
+#                                           format='json')
+#         self.assertEqual(update_response.status_code, status.HTTP_202_ACCEPTED)
+#         self.assertEqual(update_response.data.get('phone'), '666 666 6666')  # check response data
+#         self.assertEqual(update_response.data.get('address'), 'New Address')  # check response data
+#
+#         # update the provider instance and make sure that the fields are updated
+#         provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
+#         self.assertNotEqual(provider.user.first_name, self.sign_up_data['user']['first_name'])
+#         self.assertNotEqual(provider.user.last_name, self.sign_up_data['user']['last_name'])
+#         self.assertNotEqual(provider.phone, self.sign_up_data['phone'])
+#         self.assertEqual(provider.address, "New Address")
+#
+#         # make sure that the rest fields remained unchanged
+#         self.assertEqual(provider.user.username, self.sign_up_data['user']['username'])
+#         self.assertEqual(provider.user.email, self.sign_up_data['user']['email'])
+#         self.assertEqual(provider.is_provider, self.sign_up_data['is_provider'])
+#
+#         # make sure that the password did not change by log the provider in
+#         login_response = self.client.post(reverse('login'), {'username': self.sign_up_data['user']['username'],
+#                                                              'password': self.sign_up_data['user']['password']})
+#         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+#
+#     def test_provider_can_update_password(self):
+#         provider = self.authenticate()
+#
+#         # update the password
+#         updated_data = {'user': {"password": "pass_phrase"}}
+#         response = self.client.put(reverse('update_profile', args=[provider.userprofile_ptr_id]), updated_data,
+#                                    format='json')
+#         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+#
+#         # make sure that the password has updated
+#         login_response = self.client.post(reverse('login'), {'username': self.sign_up_data['user']['username'],
+#                                                              'password': 'pass_phrase'})
+#         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+#
+#         # make sure that other fields remained unchanged
+#         provider = Provider.objects.get(userprofile_ptr_id=provider.userprofile_ptr_id)
+#         self.assertEqual(provider.user.first_name, self.sign_up_data['user']['first_name'])
+#         self.assertEqual(provider.user.last_name, self.sign_up_data['user']['last_name'])
+#         self.assertEqual(provider.user.email, self.sign_up_data['user']['email'])
+#         self.assertEqual(provider.user.username, self.sign_up_data['user']['username'])
+#         self.assertEqual(provider.phone, self.sign_up_data['phone'])
+#
+#     def test_provider_cannot_update_username_to_existed_username(self):
+#         # create the users
+#         user1 = User.objects.create_user(username="user1", password="password1", email="user1@test.com")
+#         user2 = User.objects.create_user(username="user2", password="password2", email="user2@test.com")
+#         _ = Provider.objects.create(user=user1)
+#         provider2 = Provider.objects.create(user=user2)
+#
+#         # log the user in
+#         response = self.client.post(reverse('login'), {"username": "user2", "password": "password2"}, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_200_OK)
+#
+#         # update current username to an existed username
+#         response = self.client.put(reverse("update_profile", args=[provider2.userprofile_ptr_id]),
+#                                    {"user": {"username": "user1"}}, format='json')
+#
+#         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+#         self.assertEqual(response.data['detail'], "Username is already in use")
+#
+#     def test_unapproved_provider_cannot_update_account_information(self):
+#         provider = self.authenticate()
+#         provider.account_status = "pending"
+#         provider.save()
+#         response = self.client.put(reverse("update_profile", args=[provider.userprofile_ptr_id]),
+#                                    {"user": {"username": "updated_username"}}, format='json')
+#
+#         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+#         self.assertEqual(response.data['detail'], "Your account is not approved yet")
+#         self.assertNotEqual(provider.user.username, "updated_username")
+#
+#     def test_user_cannot_update_other_user_information(self):
+#         # create the users
+#         user1 = User.objects.create_user(username="user1", password="password1", email="user1@test.com")
+#         user2 = User.objects.create_user(username="user2", password="password2", email="user2@test.com")
+#         _ = Provider.objects.create(user=user1)
+#         provider2 = Provider.objects.create(user=user2)
+#         self.assertEqual(User.objects.count(), 2)
+#         self.assertEqual(Provider.objects.count(), 2)
+#
+#         # log the user and make an update call to the other user field
+#         response = self.client.post(reverse('login'), {"username": "user1", "password": "password1"}, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_200_OK)
+#         response = self.client.put(reverse('update_profile', args=[provider2.userprofile_ptr_id]),
+#                                    {"user": {"username": "updated_username"}}, format='json')
+#         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+#         self.assertEqual(response.data['detail'], "You do not have permission to perform this action")
+#         provider2 = Provider.objects.get(userprofile_ptr_id=provider2.userprofile_ptr_id)
+#         self.assertEqual(provider2.user.username, "user2")
+#
+#     def test_image_upload(self):
+#         user = User.objects.create_user(username="username", password="password", email="test@test.com")
+#         provider = Provider.objects.create(user=user, is_provider=True, account_status="approved")
+#         response = self.client.post(reverse('login'),
+#                                     {"username": "username", "password": "password"},
+#                                     format='json')
+#         self.assertEqual(response.status_code, status.HTTP_200_OK)
+#
+#         # create a dictionary of the form data
+#         data = {
+#             'profile_pic': create_file()
+#         }
+#         # make an update request
+#         response = self.client.put(reverse('file_upload', args=[provider.userprofile_ptr_id]), data, format='multipart')
+#         self.assertEqual(response.status_code, status.HTTP_200_OK)
+#         self.assertTrue(os.path.exists("./media/test_image.jpg"))
 
 
 class EmailTest(TestCase):

@@ -8,8 +8,9 @@ from components.models import AutoPart
 
 
 class UserSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(required=False)
-    password = serializers.CharField(required=False)
+    username = serializers.CharField(required=True)
+    password = serializers.CharField(required=True)
+    email = serializers.CharField(required=True)
 
     class Meta:
         model = User
@@ -34,6 +35,18 @@ class UserSerializer(serializers.ModelSerializer):
         rep = super().to_representation(instance)
         rep.pop('password', None)
         return rep
+
+    def validate_username(self, value):
+        request = self.context['request']
+        if User.objects.exclude(pk=request.user.pk).filter(username=value).exists():
+            raise serializers.ValidationError(detail="Username is already in use")
+        return value
+
+    def validate_email(self, value):
+        request = self.context['request']
+        if User.objects.exclude(pk=request.user.pk).filter(email=value).exists():
+            raise serializers.ValidationError(detail="Email is already in use")
+        return value
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -151,6 +164,14 @@ class ProviderSerializer(UserProfileSerializer):
 
 
 class ConsumerSerializer(UserProfileSerializer):
-    class Meta:
+    class Meta(UserProfileSerializer.Meta):
         model = Consumer
         fields = UserProfileSerializer.Meta.fields
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', None)
+        UserSerializer.update(UserSerializer(), instance=instance.user, validated_data=user_data)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance

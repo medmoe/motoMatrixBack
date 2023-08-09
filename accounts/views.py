@@ -46,14 +46,11 @@ class SignupView(APIView):
             )
             try:
                 sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-                res = sg.send(message)
-                print(res.status_code)
-                print(res.body)
-                print(res.headers)
+                res = sg.send(message)  # Send grid response here for future uses
             except Exception as e:
                 print(e.args)
             finally:
-                response = Response({"data": data}, status=status.HTTP_201_CREATED)
+                response = Response(data, status=status.HTTP_201_CREATED)
                 response.set_cookie(key='refresh', value=str(refresh), httponly=True)
                 response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
                 return response
@@ -86,6 +83,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         response.data['user']['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
+        response.data.pop('refresh')
+        response.data.pop('access')
         return response
 
 
@@ -112,34 +111,28 @@ class ProfileDetail(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def put(self, request, id):
-        # make sure that the username is unique
-        if 'username' in request.data['user'] and User.objects.filter(
-                username=request.data['user']['username']).exclude(id=request.user.id).exists():
-            return Response({"detail": "Username is already in use"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # make sure that the email is unique
-        if 'email' in request.data['user'] and User.objects.filter(
-                email=request.data['user']['email']).exclude(id=request.user.id).exists():
-            return Response({"detail": "Email is already in use"}, status=status.HTTP_400_BAD_REQUEST)
-
         account, is_provider = get_object(id, request)
-        request.data['user'].pop('username', None)
         if is_provider:
             # make sure the account is approved
             if account.account_status != "approved":
-                return Response({"detail": "Your account is not approved yet"}, status.HTTP_403_FORBIDDEN)
+                raise ValidationError(detail="Your account is not approved yet")
 
-            serializer = ProviderSerializer(account, data=request.data)
+            serializer = ProviderSerializer(account, data=request.data, context={'request': request})
             if serializer.is_valid():
                 serializer.save()
                 response_data = serializer.data.copy()
                 response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
                 return Response(response_data, status=status.HTTP_202_ACCEPTED)
+            raise ValidationError(detail=serializer.errors)
         else:
-            serializer = ConsumerSerializer(account, data=request.data)
+            serializer = ConsumerSerializer(account, data=request.data, context={'request': request})
             if serializer.is_valid():
                 serializer.save()
+                response_data = serializer.data.copy()
+                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
                 return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+
+            raise ValidationError(detail=serializer.errors)
 
 
 class CheckAuthView(APIView):

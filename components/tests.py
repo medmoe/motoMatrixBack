@@ -6,8 +6,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.test import APITestCase
-from utils.helpers import create_image
-from accounts.models import Provider
+from utils.helpers import create_file
+from accounts.models import Provider, Consumer
 from .models import AutoPart
 from .types import CATEGORY, CONDITION
 
@@ -148,17 +148,46 @@ class AutoPartTestCases(APITestCase):
 class ImageCreationTestCases(APITestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="username", password="password", email="test@test.com")
-        self.provider = Provider.objects.create(user=self.user, is_provider=True, account_status="approved")
+
+    def authenticate_user(self, username, password):
+        return self.client.post(reverse('login'), {"username": username, "password": password}, format='json')
 
     def test_provider_can_upload_auto_part_image(self):
         # Authenticate the user
-        response = self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        provider = Provider.objects.create(user=self.user, is_provider=True, account_status="approved")
+        response = self.authenticate_user("username", "password")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Upload the image
-        response = self.client.post(reverse('upload-image'), {'image': create_image()}, format='multipart')
+        response = self.client.post(reverse('upload-file'), {'file': create_file()}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(AutoPart.objects.count(), 1)
-        self.assertIs(AutoPart.objects.first().provider.id, self.provider.id)
+        self.assertIs(AutoPart.objects.first().provider.id, provider.id)
         self.assertTrue(AutoPart.objects.first().image)
 
+    def test_unapproved_provider_cannot_upload_auto_part_image(self):
+        _ = Provider.objects.create(user=self.user, is_provider=True, account_status="pending")
+        response = self.authenticate_user("username", "password")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Upload the image
+        response = self.client.post(reverse('upload-file'), {'file': create_file()}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotEqual(AutoPart.objects.count(), 1)
 
+    def test_consumer_cannot_upload_auto_part_image(self):
+        _ = Consumer.objects.create(user=self.user, is_provider=False)
+        response = self.authenticate_user("username", "password")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Upload the image
+        response = self.client.post(reverse('upload-file'), {'file': create_file()}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(AutoPart.objects.count(), 0)
+
+    def test_only_images_can_be_uploaded(self):
+        _ = Provider.objects.create(user=self.user, is_provider=True, account_status="approved")
+        response = self.authenticate_user("username", "password")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Upload JSON file
+        response = self.client.post(reverse('upload-file'), {'file': create_file(".json")}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(AutoPart.objects.count(), 0)
