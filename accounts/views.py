@@ -1,6 +1,5 @@
 import os
 
-from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -11,15 +10,14 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
-from components.models import AutoPart
 from utils.helpers import get_object
 from utils.validators import validate_image
-from .models import Provider
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
 
 
 class SignupView(APIView):
-    permission_classes = (permissions.AllowAny,)
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny, ]
 
     def post(self, request):
         serializer = UserProfileSerializer(data=request.data, context={'request': request})
@@ -33,15 +31,16 @@ class SignupView(APIView):
                     user_data[key] = value
             data['user'] = user_data
             if data['user']["is_provider"]:
-                provider = get_object_or_404(Provider, userprofile_ptr_id=user_profile.id)
-                data['dashboard'] = {'items': AutoPart.objects.filter(provider=provider).count()}
+                data['message'] = "Your account has been created and is pending approval"
+            else:
+                data['message'] = "Your account is created successfully"
 
-            # send email verification
+            # send email for verification
             message = Mail(
                 from_email='partsplaza23@gmail.com',
                 to_emails=data['user']['email'],
                 subject="Account Verification",
-                html_content='<p> Your account is created successfully!'
+                html_content=f'<p> {data["message"]}'
             )
             try:
                 sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
@@ -50,8 +49,12 @@ class SignupView(APIView):
                 print(e.args)
             finally:
                 response = Response(data, status=status.HTTP_201_CREATED)
-                response.set_cookie(key='refresh', value=str(refresh), httponly=True)
-                response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
+
+                # Only set authentication cookies if user is not a provider
+                if not data['user']['is_provider']:
+                    response.set_cookie(key='refresh', value=str(refresh), httponly=True)
+                    response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
+
                 return response
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
