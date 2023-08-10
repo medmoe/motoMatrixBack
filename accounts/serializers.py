@@ -106,7 +106,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                     'No active account found with the given credentials'
                 )
             if provider.account_status != 'approved':
-                raise exceptions.AuthenticationFailed(
+                raise exceptions.PermissionDenied(
                     'Your account is not approved yet'
                 )
         data = super().validate(attrs)

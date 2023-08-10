@@ -1,20 +1,21 @@
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import UserProfile, Provider
 from utils.validators import validate_image
 from .models import AutoPart
+from .permissions import IsProvider, IsAutoPartOwner
 from .serializers import AutoPartSerializer
 
 
 class AutoPartList(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsProvider)
 
     def get(self, request):
-        auto_parts = AutoPart.objects.filter(provider=request.user.userprofile.provider)
+        provider = request.user.userprofile.provider
+        auto_parts = AutoPart.objects.filter(provider=provider)
         serializer = AutoPartSerializer(auto_parts, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -28,31 +29,39 @@ class AutoPartList(APIView):
 
 
 class AutoPartDetail(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsProvider, IsAutoPartOwner)
 
-    def get_object(self, pk, request):
+    def get_object(self, pk):
         try:
-            auto_part = AutoPart.objects.get(id=pk)
-            if auto_part.provider != request.user.userprofile.provider:
-                raise PermissionDenied("You do not have permission to perform this action")
-            return auto_part
+            return AutoPart.objects.get(id=pk)
         except AutoPart.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+            raise NotFound(detail="AutoPart not found")
+
+    def check_object_permissions(self, request, obj):
+        for permission in self.get_permissions():
+            if not permission.has_object_permission(request, self, obj):
+                self.permission_denied(
+                    request, message=getattr(permission, 'message', None)
+                )
 
     def get(self, request, pk):
-        auto_part = self.get_object(pk, request)
+        auto_part = self.get_object(pk)
+        self.check_object_permissions(request, auto_part)
         serializer = AutoPartSerializer(auto_part)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request, pk):
-        auto_part = self.get_object(pk, request)
+        auto_part = self.get_object(pk)
+        self.check_object_permissions(request, auto_part)
         serializer = AutoPartSerializer(auto_part, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        auto_part = self.get_object(pk, request)
+        auto_part = self.get_object(pk)
+        self.check_object_permissions(request, auto_part)
         auto_part.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

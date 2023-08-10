@@ -18,7 +18,7 @@ class AutoPartSerializer(serializers.ModelSerializer):
         except Provider.DoesNotExist:
             pass
         if provider is None:
-            raise serializers.ValidationError("Only providers can create auto parts")
+            raise serializers.ValidationError(detail="You are not allowed to perform this action.")
 
         if provider.account_status != 'approved':
             raise serializers.ValidationError("Your account is not approved yet")

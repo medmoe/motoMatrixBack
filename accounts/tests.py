@@ -80,7 +80,7 @@ class LoginTestCases(APITestCase):
         self.provider.account_status = "pending"
         self.provider.save(0)
         response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn('user', response.data)
         self.assertEqual(response.data['detail'], "Your account is not approved yet")
 
@@ -245,13 +245,16 @@ class FileUploadTestCases(APITestCase):
     def uploadFile(self):
         pass
 
-    def test_unauthenticated_user_cannot_upload_file(self):
+    def authenticate_and_verify_file_upload(self, code):
         response = self.client.put(reverse('file_upload', args=[self.provider.userprofile_ptr_id]),
                                    self.data,
                                    format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, code)
         provider = Provider.objects.get(userprofile_ptr_id=self.provider.userprofile_ptr_id)
         self.assertFalse(provider.profile_pic)
+
+    def test_unauthenticated_user_cannot_upload_file(self):
+        self.authenticate_and_verify_file_upload(status.HTTP_401_UNAUTHORIZED)
 
     def test_authenticated_user_can_upload_file(self):
         response = self.client.post(reverse('login'),
@@ -274,12 +277,7 @@ class FileUploadTestCases(APITestCase):
                                     format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.data = {'profile_pic': create_file(".json")}
-        response = self.client.put(reverse('file_upload', args=[self.provider.userprofile_ptr_id]),
-                                   self.data,
-                                   format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        provider = Provider.objects.get(userprofile_ptr_id=self.provider.userprofile_ptr_id)
-        self.assertFalse(provider.profile_pic)
+        self.authenticate_and_verify_file_upload(status.HTTP_400_BAD_REQUEST)
 
 
 class EmailTest(TestCase):
