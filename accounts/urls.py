@@ -16,6 +16,8 @@ urlpatterns = [
     path('refresh/', CustomTokenRefreshView.as_view(), name="refresh"),
     path('check-auth/', CheckAuthView.as_view(), name="check-auth"),
     # update profile information
-    path('<int:id>/', ProfileDetail.as_view(), name="update_profile"),
-    path('files/<int:id>/', FileUpload.as_view(), name="file_upload")
+    path('<str:is_provider>/<int:account_id>/', ProfileDetail.as_view(), name="update_profile"),
+    path('files/<str:is_provider>/<int:account_id>/', FileUpload.as_view(), name="file_upload"),
+
+    # added path for a view here that handles paths that are out of scope of the app
 ]

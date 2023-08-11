@@ -3,27 +3,24 @@ import tempfile
 
 from PIL import Image
 from django.core.files.uploadedfile import SimpleUploadedFile
-from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.response import Response
 
 from accounts.models import UserProfile, Provider, Consumer
 
 
-def get_object(id, request):
+def get_object(is_provider, account_id, user):
     try:
-        account = UserProfile.objects.get(id=id)
-        if account != request.user.userprofile:
-            raise PermissionDenied("You do not have permission to perform this action")
+        if is_provider.lower() == "true":
+            account = Provider.objects.get(userprofile_ptr_id=account_id)
+        else:
+            account = Consumer.objects.get(userprofile_ptr_id=account_id)
 
-        if account.is_provider:
-            provider = Provider.objects.get(userprofile_ptr_id=id)
-            return provider, True
-        consumer = Consumer.objects.get(userprofile_ptr_id=id)
-        return consumer, False
+        if account.userprofile_ptr_id != user.id:
+            raise PermissionDenied(detail="You do not have permission to perform this action")
 
+        return account
     except UserProfile.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+        raise PermissionDenied(detail="You do not have permission to perform this action")
 
 
 def create_file(suffix=".jpg"):

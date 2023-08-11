@@ -82,7 +82,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        response.data['user']['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
+        if response.data['user']['profile_pic']:
+            response.data['user']['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
         response.data.pop('refresh')
@@ -112,9 +113,9 @@ class CustomTokenRefreshView(TokenRefreshView):
 class ProfileDetail(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
-    def put(self, request, id):
-        account, is_provider = get_object(id, request)
-        if is_provider:
+    def put(self, request, is_provider, account_id):
+        account = get_object(is_provider, account_id, request.user)
+        if is_provider.lower() == "true":
             # make sure the account is approved
             if account.account_status != "approved":
                 raise ValidationError(detail="Your account is not approved yet")
@@ -123,7 +124,8 @@ class ProfileDetail(APIView):
             if serializer.is_valid():
                 serializer.save()
                 response_data = serializer.data.copy()
-                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
+                if response_data['profile_pic']:
+                    response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
                 return Response(response_data, status=status.HTTP_202_ACCEPTED)
             raise ValidationError(detail=serializer.errors)
         else:
@@ -131,7 +133,8 @@ class ProfileDetail(APIView):
             if serializer.is_valid():
                 serializer.save()
                 response_data = serializer.data.copy()
-                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
+                if response_data['profile_pic']:
+                    response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
                 return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
             raise ValidationError(detail=serializer.errors)
@@ -147,8 +150,8 @@ class CheckAuthView(APIView):
 class FileUpload(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
-    def put(self, request, id):
-        account, is_provider = get_object(id, request)
+    def put(self, request, is_provider, account_id):
+        account = get_object(is_provider, account_id, request.user)
 
         # check if the file has been sent with the request
         if 'profile_pic' not in request.FILES:
