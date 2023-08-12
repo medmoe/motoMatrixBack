@@ -1,7 +1,7 @@
 import os
 
 from rest_framework import permissions, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -10,8 +10,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
-from utils.helpers import get_object
 from utils.validators import validate_image
+from .models import Provider, Consumer
+from .permissions import IsAccountOwner
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
 
 
@@ -82,8 +83,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        if response.data['user']['profile_pic']:
-            response.data['user']['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
+        if response.data['profile_pic']:
+            response.data['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
         response.data.pop('refresh')
@@ -111,33 +112,45 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 
 class ProfileDetail(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsAccountOwner)
 
-    def put(self, request, is_provider, account_id):
-        account = get_object(is_provider, account_id, request.user)
-        if is_provider.lower() == "true":
-            # make sure the account is approved
-            if account.account_status != "approved":
-                raise ValidationError(detail="Your account is not approved yet")
-
-            serializer = ProviderSerializer(account, data=request.data, context={'request': request})
-            if serializer.is_valid():
-                serializer.save()
-                response_data = serializer.data.copy()
-                if response_data['profile_pic']:
-                    response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
-                return Response(response_data, status=status.HTTP_202_ACCEPTED)
-            raise ValidationError(detail=serializer.errors)
+    @staticmethod
+    def get_account(account_id):
+        # Attempt to get account
+        account = Provider.objects.filter(userprofile_ptr_id=account_id).first()
+        if account:
+            # Make sure the account is approved
+            if account.account_status == "pending":
+                raise PermissionDenied(detail="Your account is not approved yet")
         else:
-            serializer = ConsumerSerializer(account, data=request.data, context={'request': request})
-            if serializer.is_valid():
-                serializer.save()
-                response_data = serializer.data.copy()
-                if response_data['profile_pic']:
-                    response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
-                return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+            account = Consumer.objects.filter(userprofile_ptr_id=account_id).first()
+            if not account:
+                raise NotFound(detail="Account does not exist")
 
-            raise ValidationError(detail=serializer.errors)
+        return account
+
+    def check_object_permissions(self, request, obj):
+        for permission in self.get_permissions():
+            if not permission.has_object_permission(request, self, obj):
+                self.permission_denied(request, message=getattr(permission, 'message', None))
+
+    def put(self, request, account_id):
+        account = self.get_account(account_id)
+        self.check_object_permissions(request, account)
+
+        if account.is_provider:
+            serializer = ProviderSerializer(account, request.data, context={'request': request})
+        else:
+            serializer = ConsumerSerializer(account, request.data, context={'request': request})
+
+        if serializer.is_valid():
+            serializer.save()
+            response_data = serializer.data.copy()
+            if response_data['profile_pic']:
+                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        raise ValidationError(detail=serializer.errors)
 
 
 class CheckAuthView(APIView):
@@ -148,10 +161,16 @@ class CheckAuthView(APIView):
 
 
 class FileUpload(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsAccountOwner)
 
-    def put(self, request, is_provider, account_id):
-        account = get_object(is_provider, account_id, request.user)
+    def check_object_permissions(self, request, obj):
+        for permission in self.get_permissions():
+            if not permission.has_object_permission(request, self, obj):
+                self.permission_denied(request, message=getattr(permission, 'message', None))
+
+    def put(self, request, account_id):
+        account = ProfileDetail.get_account(account_id)
+        self.check_object_permissions(request, account)
 
         # check if the file has been sent with the request
         if 'profile_pic' not in request.FILES:
@@ -170,4 +189,4 @@ class FileUpload(APIView):
         # get the url of the saved file
         file_url = request.build_absolute_uri(account.profile_pic.url)
 
-        return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_202_ACCEPTED)
+        return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_200_OK)

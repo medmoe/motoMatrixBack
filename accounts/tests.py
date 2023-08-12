@@ -1,6 +1,7 @@
 import os
-from unittest.mock import patch
+from threading import Lock
 from unittest import skip
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -11,7 +12,8 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from utils.helpers import create_file
-from .models import Provider, Consumer, UserProfile
+from .models import Provider, Consumer
+from .permissions import IsAccountOwner
 
 
 class SignUpTestCases(APITransactionTestCase):
@@ -83,7 +85,7 @@ class LoginTestCases(APITestCase):
         response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn('user', response.data)
-        self.assertEqual(response.data['detail'], "Your account is not approved yet")
+        self.assertEqual(str(response.data['detail']), "Your account is not approved yet")
 
     def test_consumer_can_login(self):
         another_user = User.objects.create_user(username="another_user", password="password", email="other@test.com")
@@ -95,7 +97,7 @@ class LoginTestCases(APITestCase):
         self.assertIn('user', response.data)
         self.assertEqual(response.data['user']['username'], consumer.user.username)
         self.assertEqual(response.data['user']['email'], consumer.user.email)
-        self.assertEqual(response.data['user']['is_provider'], consumer.is_provider)
+        self.assertEqual(response.data['is_provider'], consumer.is_provider)
 
     def test_user_cannot_login_with_wrong_credentials(self):
         response = self.client.post(reverse('login'),
@@ -103,7 +105,7 @@ class LoginTestCases(APITestCase):
                                     format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn('user', response.data)
-        self.assertEqual(response.data['detail'], "No active account found with the given credentials")
+        self.assertEqual(str(response.data['detail']), "No active account found with the given credentials")
 
 
 class LogoutTestCases(APITestCase):
@@ -159,18 +161,21 @@ class UpdateAccountTestCases(APITestCase):
             "city": "updated_city",
             "country": "updated_country",
         }
-        self.user_type = {"provider": "true", "consumer": "false"}
         self.login_data = {"username": self.provider_one.user.username, "password": "password"}
+        self.lock = Lock()
 
-    def authenticate_user_and_update_account(self, username, account, user_type, password="password"):
+    def authenticate_user_and_update_account(self, username, account, password="password"):
         response = self.client.post(reverse('login'), {"username": username, "password": password}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # update account information
-        resolved_url = reverse('update_profile', args=[user_type, account.userprofile_ptr_id])
+        resolved_url = reverse('update_profile', args=[account.user.id])
         response = self.client.put(resolved_url, self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('user', response.data)
-        updated_account = UserProfile.objects.get(id=account.userprofile_ptr_id)
+        if account.is_provider:
+            updated_account = Provider.objects.filter(userprofile_ptr_id=account.user.id).first()
+        else:
+            updated_account = Consumer.objects.filter(userprofile_ptr_id=account.user.id).first()
         user_data = self.data.pop('user')
         password = user_data.pop('password')
         for key, value in user_data.items():
@@ -188,22 +193,16 @@ class UpdateAccountTestCases(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_consumer_can_update_account_information(self):
-        self.authenticate_user_and_update_account(
-            username=self.consumer_one.user.username,
-            account=self.consumer_one,
-            user_type=self.user_type['consumer'])
+        self.authenticate_user_and_update_account(username=self.consumer_one.user.username, account=self.consumer_one, )
 
     def test_provider_can_update_profile_information(self):
-        self.authenticate_user_and_update_account(
-            username=self.provider_one.user.username,
-            account=self.provider_one,
-            user_type=self.user_type['provider'])
+        self.authenticate_user_and_update_account(username=self.provider_one.user.username, account=self.provider_one)
 
     def test_user_cannot_update_username_to_existing_username(self):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.data['user']['username'] = self.consumer_one.user.username
-        url = reverse("update_profile", args=[self.user_type['provider'], self.provider_one.userprofile_ptr_id])
+        url = reverse("update_profile", args=[self.provider_user_one.id])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['user']['username'][0], "Username is already in use")
@@ -212,13 +211,13 @@ class UpdateAccountTestCases(APITestCase):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.data['user']['email'] = self.consumer_one.user.email
-        url = reverse('update_profile', args=[self.user_type['provider'], self.provider_one.userprofile_ptr_id])
+        url = reverse('update_profile', args=[self.provider_user_one.id])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data['user']['email'][0]), "Email is already in use")
 
     def test_only_authenticated_users_can_do_updates(self):
-        url = reverse('update_profile', args=[self.user_type['provider'], self.provider_one.userprofile_ptr_id])
+        url = reverse('update_profile', args=[self.provider_user_one.id])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(str(response.data['detail']), "Authentication credentials were not provided.")
@@ -226,10 +225,19 @@ class UpdateAccountTestCases(APITestCase):
     def test_user_cannot_update_other_user_account(self):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        url = reverse('update_profile', args=[self.user_type['provider'], self.consumer_one.userprofile_ptr_id])
+        self.assertEqual(User.objects.all().count(), 2)
+        url = reverse('update_profile', args=[self.consumer_user_one.id])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(str(response.data['detail']), "You do not have permission to perform this action")
+        self.assertEqual(str(response.data['detail']), IsAccountOwner.message)
+
+    def test_handle_nonexistent_account(self):
+        response = self.client.post(reverse('login'), self.login_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        url = reverse('update_profile', args=[34])  # random id number that does not exist
+        response = self.client.put(url, self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(str(response.data['detail']), "Account does not exist")
 
 
 class FileUploadTestCases(APITestCase):
@@ -246,43 +254,32 @@ class FileUploadTestCases(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_unauthenticated_user_cannot_upload_file(self):
-        url = reverse('file_upload', args=["true", self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         provider = Provider.objects.get(userprofile_ptr_id=self.provider.userprofile_ptr_id)
         self.assertFalse(provider.profile_pic)
 
-    def test_authenticated_provider_can_upload_file(self):
+    def test_authenticated_account_can_upload_file(self):
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=["true", self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
         response = self.client.put(url, self.data, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('file', response.data)
         self.assertEqual(response.data['detail'], 'File uploaded successfully')
         provider = Provider.objects.get(userprofile_ptr_id=self.provider.userprofile_ptr_id)
         self.assertTrue(provider.profile_pic)
 
-    def test_authenticated_consumer_can_upload_file(self):
-        self.authenticate(self.consumer)
-        url = reverse('file_upload', args=["false", self.consumer.userprofile_ptr_id])
-        response = self.client.put(url, self.data, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertIn('file', response.data)
-        self.assertEqual(response.data['detail'], "File uploaded successfully")
-        # Get the updated account
-        consumer = Consumer.objects.get(userprofile_ptr_id=self.consumer.userprofile_ptr_id)
-        self.assertTrue(consumer.profile_pic)
-
-    def test_provider_cannot_upload_file_for_another_account(self):
+    def test_user_cannot_upload_file_for_another_account(self):
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=["true", self.consumer.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.consumer.userprofile_ptr_id])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_only_images_can_be_uploaded(self):
         self.data = {'profile_pic': create_file(".json")}
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=['true', self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data[0]), "Uploaded file is not a valid image")

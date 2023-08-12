@@ -4,7 +4,6 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import Consumer, Provider, UserProfile
-from components.models import AutoPart
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -85,67 +84,35 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+
     def validate(self, attrs):
-        try:
-            user = User.objects.get(username=attrs['username'])
-        except User.DoesNotExist:
-            raise exceptions.AuthenticationFailed(
-                'No active account found with the given credentials'
-            )
-        try:
-            user_profile = UserProfile.objects.get(user=user)
-        except UserProfile.DoesNotExist:
-            raise exceptions.AuthenticationFailed(
-                'No active account found with the given credentials'
-            )
-        if user_profile.is_provider:
-            try:
-                provider = Provider.objects.get(userprofile_ptr_id=user_profile.id)
-            except Provider.DoesNotExist:
-                raise exceptions.AuthenticationFailed(
-                    'No active account found with the given credentials'
-                )
-            if provider.account_status != 'approved':
-                raise exceptions.PermissionDenied(
-                    'Your account is not approved yet'
-                )
+        # Attempt to get user
+        user = User.objects.filter(username=attrs['username']).first()
+        if not user:
+            raise exceptions.AuthenticationFailed('No active account found with the given credentials')
+
+        # Attempt to get account
+        provider = Provider.objects.filter(user=user).first()
+        if provider:
+            if provider.account_status == "pending":
+                raise exceptions.PermissionDenied(detail="Your account is not approved yet")
+            account = provider
+        else:
+            consumer = Consumer.objects.filter(user=user).first()
+            if consumer:
+                account = consumer
+            else:
+                raise exceptions.AuthenticationFailed('No active account found with the given credentials')
+
         data = super().validate(attrs)
         refresh = self.get_token(self.user)
         data['refresh'] = str(refresh)
         data['access'] = str(refresh.access_token)
+        data['profile_pic'] = account.profile_pic.url if account.profile_pic and account.profile_pic.name else None
 
-        # Add extra responses here
-        user_fields = ["id", "username", "email", "first_name", "last_name"]
-        user_profile_fields = ["is_provider", "phone", "address", "city", "country", "rating"]
-        data["user"] = dict()
-        data["dashboard"] = dict()
-
-        # handle the image separately
-        if user_profile.profile_pic and user_profile.profile_pic.name:
-            data['user']["profile_pic"] = user_profile.profile_pic.url
-        else:
-            data["user"]["profile_pic"] = None
-
-        for field in user_fields:
-            if field == "user_id":
-                data["user"][field] = user.id
-            else:
-                data["user"][field] = getattr(user, field)
-
-        for field in user_profile_fields:
-            data["user"][field] = getattr(user_profile, field)
-
-        if user_profile.is_provider:
-            try:
-                provider = Provider.objects.get(userprofile_ptr_id=user_profile.id)
-                data['user']["description"] = provider.description
-                data['dashboard']["items"] = AutoPart.objects.filter(provider=provider).count()
-
-            except Provider.DoesNotExist:
-                raise exceptions.AuthenticationFailed(
-                    "No active account found with the given credentials"
-                )
-
+        # serialize account
+        sa = ProviderSerializer(account).data if isinstance(account, Provider) else ConsumerSerializer(account).data
+        data.update(sa)
         return data
 
 
