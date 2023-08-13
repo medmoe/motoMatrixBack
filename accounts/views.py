@@ -25,23 +25,13 @@ class SignupView(APIView):
         if serializer.is_valid():
             user_profile = serializer.save()
             refresh = RefreshToken.for_user(user_profile.user)
-            data = dict()
-            user_data = serializer.data.pop('user')
-            for key, value in serializer.data.items():
-                if key != "user":
-                    user_data[key] = value
-            data['user'] = user_data
-            if data['user']["is_provider"]:
-                data['message'] = "Your account has been created and is pending approval"
-            else:
-                data['message'] = "Your account is created successfully"
 
             # send email for verification
             message = Mail(
                 from_email='partsplaza23@gmail.com',
-                to_emails=data['user']['email'],
+                to_emails=user_profile.user.email,
                 subject="Account Verification",
-                html_content=f'<p> {data["message"]}'
+                html_content='<p> Account created successfully </p>'
             )
             try:
                 sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
@@ -49,10 +39,10 @@ class SignupView(APIView):
             except Exception as e:
                 print(e.args)
             finally:
-                response = Response(data, status=status.HTTP_201_CREATED)
+                response = Response(serializer.data, status=status.HTTP_201_CREATED)
 
                 # Only set authentication cookies if user is not a provider
-                if not data['user']['is_provider']:
+                if not user_profile.is_provider:
                     response.set_cookie(key='refresh', value=str(refresh), httponly=True)
                     response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
 
