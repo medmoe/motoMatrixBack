@@ -1,17 +1,18 @@
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import UserProfile, Provider
+from accounts.models import Provider
 from utils.validators import validate_image
 from .models import AutoPart
-from .permissions import IsProvider, IsAutoPartOwner
+from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
 from .serializers import AutoPartSerializer
 
 
 class AutoPartList(APIView):
-    permission_classes = (permissions.IsAuthenticated, IsProvider)
+    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
 
     def get(self, request):
         provider = request.user.userprofile.provider
@@ -24,12 +25,11 @@ class AutoPartList(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        else:
-            return Response({'details': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        raise ValidationError(detail=serializer.errors)
 
 
 class AutoPartDetail(APIView):
-    permission_classes = (permissions.IsAuthenticated, IsProvider, IsAutoPartOwner)
+    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved, IsAutoPartOwner)
 
     def get_object(self, pk):
         try:
@@ -67,21 +67,9 @@ class AutoPartDetail(APIView):
 
 
 class ImageCreation(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsProvider, IsProviderApproved)
 
     def post(self, request):
-        # Make sure the user is a provider
-        try:
-            userprofile = UserProfile.objects.get(user=request.user)
-            if not userprofile.is_provider:
-                raise ValidationError(detail="You don't have permission to perform this action")
-
-            provider = Provider.objects.get(userprofile_ptr_id=userprofile.id)
-            if provider.account_status != "approved":
-                raise ValidationError(detail="You don't have permission to perform this action")
-
-        except UserProfile.DoesNotExist:
-            raise NotFound(detail="User profile not found")
 
         # check if the file has been sent with the request
         if 'file' not in request.FILES:
@@ -94,6 +82,6 @@ class ImageCreation(APIView):
             raise ValidationError(detail="Uploaded file is not a valid image")
 
         # Create auto part object with the data we have so far
-        _ = AutoPart.objects.create(image=file, provider=provider)
+        AutoPart.objects.create(image=file, provider=Provider.objects.get(user=request.user))
 
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)

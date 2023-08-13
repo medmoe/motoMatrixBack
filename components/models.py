@@ -1,7 +1,29 @@
+from enum import Enum, unique
+
 from django.db import models
 
 from accounts.models import Provider
-from .types import CATEGORY, CONDITION
+
+
+@unique
+class AutoPartConditions(Enum):
+    NEW = "NEW"
+    USED = "USED"
+    REFURBISHED = "REFURBISHED"
+
+
+@unique
+class AutoPartCategories(Enum):
+    ENGINE = "ENGINE"
+    TRANSMISSION = "TRANSMISSION"
+    SUSPENSION = "SUSPENSION"
+    BRAKES = "BRAKES"
+    ELECTRICAL = "ELECTRICAL"
+    BODY = "BODY"
+    INTERIOR = "INTERIOR"
+    TIRES = "TIRES"
+    WHEELS = "WHEELS"
+    ACCESSORIES = "ACCESSORIES"
 
 
 class Component(models.Model):
@@ -22,11 +44,14 @@ class Component(models.Model):
 
 
 class AutoPart(Component):
-    category = models.CharField(max_length=20, choices=CATEGORY, blank=True)
+    auto_part_condition = [(condition.value, condition.name) for condition in AutoPartConditions]
+    auto_part_category = [(category.value, category.name) for category in AutoPartCategories]
+    category = models.CharField(max_length=20, choices=auto_part_category, blank=True)
     vehicle_make = models.CharField(max_length=100, blank=True)
     vehicle_model = models.CharField(max_length=100, blank=True)
     vehicle_year = models.CharField(max_length=100, blank=True)
-    condition = models.CharField(max_length=100, choices=CONDITION, blank=True)
+    condition = models.CharField(max_length=100, choices=auto_part_condition, blank=True)
+
     # Original Equipment Manufacturer number.This is a unique number that identifies the part.
     OEM_number = models.CharField(max_length=100, blank=True)
     UPC_number = models.CharField(max_length=100, blank=True)  # Universal Product Code number. if available

@@ -12,7 +12,7 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from utils.helpers import create_file
-from .models import Provider, Consumer
+from .models import Provider, Consumer, AccountStatus
 from .permissions import IsAccountOwner
 
 
@@ -68,7 +68,9 @@ class LoginTestCases(APITestCase):
     def setUp(self) -> None:
         self.existed_user = User.objects.create_user(username="existed_user", password="password",
                                                      email="test@test.com")
-        self.provider = Provider.objects.create(user=self.existed_user, is_provider=True, account_status="approved")
+        self.provider = Provider.objects.create(user=self.existed_user,
+                                                is_provider=True,
+                                                account_status=AccountStatus.APPROVED.value)
 
     def test_provider_can_login(self) -> None:
         response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
@@ -80,8 +82,8 @@ class LoginTestCases(APITestCase):
         self.assertNotIn("password", response.data['user'])
 
     def test_pending_provider_cannot_login(self):
-        self.provider.account_status = "pending"
-        self.provider.save(0)
+        self.provider.account_status = AccountStatus.PENDING.value
+        self.provider.save()
         response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn('user', response.data)
@@ -117,7 +119,9 @@ class LogoutTestCases(APITestCase):
                                                       password="password",
                                                       email="provider@test.com")
         self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
-        self.provider = Provider.objects.create(user=self.provider_user, is_provider=True, account_status="approved")
+        self.provider = Provider.objects.create(user=self.provider_user,
+                                                is_provider=True,
+                                                account_status=AccountStatus.APPROVED.value)
 
     def test_consumer_can_log_out(self):
         # Authenticate the consumer first
@@ -147,7 +151,7 @@ class UpdateAccountTestCases(APITestCase):
         self.consumer_one = Consumer.objects.create(user=self.consumer_user_one, is_provider=False)
         self.provider_one = Provider.objects.create(user=self.provider_user_one,
                                                     is_provider=True,
-                                                    account_status="approved")
+                                                    account_status=AccountStatus.APPROVED.value)
         self.data = {
             "user": {
                 "username": "updated_username",
@@ -252,7 +256,9 @@ class UpdateAccountTestCases(APITestCase):
 class FileUploadTestCases(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="user", password="password", email="user@test.com")
-        self.provider = Provider.objects.create(user=self.user, is_provider=True, account_status="approved")
+        self.provider = Provider.objects.create(user=self.user,
+                                                is_provider=True,
+                                                account_status=AccountStatus.APPROVED.value)
         self.consumer_user = User.objects.create_user(username="consumer", password="password")
         self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
         self.data = {'profile_pic': create_file()}
