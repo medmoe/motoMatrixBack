@@ -53,7 +53,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['user', 'profile_pic', 'is_provider', 'phone', 'address', 'city', 'country', 'rating']
+        fields = ['user', 'profile_pic', 'is_provider', 'phone', 'address', 'city', 'country', 'rating', 'id']
 
     def create(self, validated_data):
         # Make sure that the email is unique
@@ -108,7 +108,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         refresh = self.get_token(self.user)
         data['refresh'] = str(refresh)
         data['access'] = str(refresh.access_token)
-        data['profile_pic'] = account.profile_pic.url if account.profile_pic and account.profile_pic.name else None
 
         # serialize account
         sa = ProviderSerializer(account).data if isinstance(account, Provider) else ConsumerSerializer(account).data

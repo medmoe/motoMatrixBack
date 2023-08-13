@@ -168,14 +168,14 @@ class UpdateAccountTestCases(APITestCase):
         response = self.client.post(reverse('login'), {"username": username, "password": password}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # update account information
-        resolved_url = reverse('update_profile', args=[account.user.id])
+        resolved_url = reverse('update_profile', args=[account.user.username])
         response = self.client.put(resolved_url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('user', response.data)
         if account.is_provider:
-            updated_account = Provider.objects.filter(userprofile_ptr_id=account.user.id).first()
+            updated_account = Provider.objects.filter(userprofile_ptr_id=account.userprofile_ptr_id).first()
         else:
-            updated_account = Consumer.objects.filter(userprofile_ptr_id=account.user.id).first()
+            updated_account = Consumer.objects.filter(userprofile_ptr_id=account.userprofile_ptr_id).first()
         user_data = self.data.pop('user')
         password = user_data.pop('password')
         for key, value in user_data.items():
@@ -202,7 +202,7 @@ class UpdateAccountTestCases(APITestCase):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.data['user']['username'] = self.consumer_one.user.username
-        url = reverse("update_profile", args=[self.provider_user_one.id])
+        url = reverse("update_profile", args=[self.provider_one.user.username])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['user']['username'][0], "Username is already in use")
@@ -211,13 +211,13 @@ class UpdateAccountTestCases(APITestCase):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.data['user']['email'] = self.consumer_one.user.email
-        url = reverse('update_profile', args=[self.provider_user_one.id])
+        url = reverse('update_profile', args=[self.provider_one.user.username])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data['user']['email'][0]), "Email is already in use")
 
     def test_only_authenticated_users_can_do_updates(self):
-        url = reverse('update_profile', args=[self.provider_user_one.id])
+        url = reverse('update_profile', args=[self.provider_one.user.username])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(str(response.data['detail']), "Authentication credentials were not provided.")
@@ -226,7 +226,7 @@ class UpdateAccountTestCases(APITestCase):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(User.objects.all().count(), 2)
-        url = reverse('update_profile', args=[self.consumer_user_one.id])
+        url = reverse('update_profile', args=[self.consumer_one.user.username])
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsAccountOwner.message)
@@ -234,10 +234,19 @@ class UpdateAccountTestCases(APITestCase):
     def test_handle_nonexistent_account(self):
         response = self.client.post(reverse('login'), self.login_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        url = reverse('update_profile', args=[34])  # random id number that does not exist
+        url = reverse('update_profile', args=["some_username"])  # random username string that does not exist
         response = self.client.put(url, self.data, format='json')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(str(response.data['detail']), "Account does not exist")
+
+    def test_fields_should_not_be_required(self):
+        response = self.client.post(reverse('login'), self.login_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        url = reverse('update_profile', args=[self.provider_one.user.username])
+        # remove the password
+        self.data['user'].pop('password')
+        response = self.client.put(url, self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class FileUploadTestCases(APITestCase):
@@ -254,7 +263,7 @@ class FileUploadTestCases(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_unauthenticated_user_cannot_upload_file(self):
-        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.user.username])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         provider = Provider.objects.get(userprofile_ptr_id=self.provider.userprofile_ptr_id)
@@ -262,7 +271,7 @@ class FileUploadTestCases(APITestCase):
 
     def test_authenticated_account_can_upload_file(self):
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.user.username])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('file', response.data)
@@ -272,14 +281,14 @@ class FileUploadTestCases(APITestCase):
 
     def test_user_cannot_upload_file_for_another_account(self):
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=[self.consumer.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.consumer.user.username])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_only_images_can_be_uploaded(self):
         self.data = {'profile_pic': create_file(".json")}
         self.authenticate(self.provider)
-        url = reverse('file_upload', args=[self.provider.userprofile_ptr_id])
+        url = reverse('file_upload', args=[self.provider.user.username])
         response = self.client.put(url, self.data, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data[0]), "Uploaded file is not a valid image")

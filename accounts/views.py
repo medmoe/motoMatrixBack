@@ -74,7 +74,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.data['profile_pic']:
-            response.data['profile_pic'] = request.build_absolute_uri(response.data['user']['profile_pic'])
+            response.data['profile_pic'] = request.build_absolute_uri(response.data['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
         response.data.pop('refresh')
@@ -105,17 +105,20 @@ class ProfileDetail(APIView):
     permission_classes = (permissions.IsAuthenticated, IsAccountOwner)
 
     @staticmethod
-    def get_account(account_id):
-        # Attempt to get account
-        account = Provider.objects.filter(userprofile_ptr_id=account_id).first()
-        if account:
-            # Make sure the account is approved
-            if account.account_status == "pending":
-                raise PermissionDenied(detail="Your account is not approved yet")
-        else:
-            account = Consumer.objects.filter(userprofile_ptr_id=account_id).first()
-            if not account:
-                raise NotFound(detail="Account does not exist")
+    def get_account(username):
+        # Attempt to get a Provider account with the given username
+        account = Provider.objects.filter(user__username=username).first()
+
+        if account and account.account_status == "pending":
+            raise PermissionDenied(detail="Your account is not approved yet")
+
+        # If not a Provider, try to get a Consumer account
+        if not account:
+            account = Consumer.objects.filter(user__username=username).first()
+
+        # If neither Provider nor Consumer account found, raise an error
+        if not account:
+            raise NotFound(detail="Account does not exist")
 
         return account
 
@@ -124,14 +127,14 @@ class ProfileDetail(APIView):
             if not permission.has_object_permission(request, self, obj):
                 self.permission_denied(request, message=getattr(permission, 'message', None))
 
-    def put(self, request, account_id):
-        account = self.get_account(account_id)
+    def put(self, request, username):
+        account = self.get_account(username)
         self.check_object_permissions(request, account)
 
         if account.is_provider:
-            serializer = ProviderSerializer(account, request.data, context={'request': request})
+            serializer = ProviderSerializer(account, request.data, partial=True, context={'request': request})
         else:
-            serializer = ConsumerSerializer(account, request.data, context={'request': request})
+            serializer = ConsumerSerializer(account, request.data, partial=True, context={'request': request})
 
         if serializer.is_valid():
             serializer.save()
@@ -158,8 +161,8 @@ class FileUpload(APIView):
             if not permission.has_object_permission(request, self, obj):
                 self.permission_denied(request, message=getattr(permission, 'message', None))
 
-    def put(self, request, account_id):
-        account = ProfileDetail.get_account(account_id)
+    def put(self, request, username):
+        account = ProfileDetail.get_account(username)
         self.check_object_permissions(request, account)
 
         # check if the file has been sent with the request
