@@ -3,6 +3,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 
 from accounts.models import Provider
 from utils.validators import validate_image
@@ -16,9 +17,13 @@ class AutoPartList(APIView):
 
     def get(self, request):
         provider = request.user.userprofile.provider
-        auto_parts = AutoPart.objects.filter(provider=provider)
-        serializer = AutoPartSerializer(auto_parts, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        auto_parts = AutoPart.objects.filter(provider=provider).order_by('id')
+
+        # Apply Pagination
+        paginator = PageNumberPagination()
+        paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
+        serializer = AutoPartSerializer(paginated_auto_parts, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
         serializer = AutoPartSerializer(data=request.data, context={'request': request})

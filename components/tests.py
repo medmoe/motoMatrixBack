@@ -85,7 +85,7 @@ class AutoPartListTestCases(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         db_auto_parts = AutoPart.objects.filter(provider=self.provider).order_by('name')
-        response_auto_parts = sorted(response.data, key=lambda x: x['name'])
+        response_auto_parts = sorted(response.data['results'], key=lambda x: x['name'])
         self.assertEqual(len(db_auto_parts), len(response_auto_parts))
 
         for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
@@ -107,7 +107,7 @@ class AutoPartListTestCases(APITestCase):
         # Retrieve auto parts
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), AutoPart.objects.filter(provider=self.provider).count())
+        self.assertEqual(response.data['count'], AutoPart.objects.filter(provider=self.provider).count())
 
     def test_consumer_cannot_create_auto_part(self):
         response = self.client.post(reverse('login'), {"username": 'consumer', 'password': "password"}, format='json')
@@ -123,6 +123,18 @@ class AutoPartListTestCases(APITestCase):
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
+
+    def test_pagination(self):
+        # Set Up
+        page_size = 10
+        for i in range(page_size + 5):
+            AutoPart.objects.create(provider=self.provider, name=f'Part {i}')
+        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        response = self.client.get(reverse('auto-parts'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for key in ('count', 'next', 'previous', 'results'):
+            self.assertIn(key, response.data)
+        self.assertEqual(len(response.data['results']), page_size)
 
 
 class AutoPartDetailTestCases(APITestCase):

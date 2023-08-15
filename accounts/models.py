@@ -43,7 +43,7 @@ class Provider(UserProfile):
     accounts_statuses = [(status.value, status.name) for status in AccountStatus]
 
     provider_type = models.CharField(max_length=20, choices=provider_types, blank=True)
-    account_status = models.CharField(max_length=20, choices=accounts_statuses, default='pending')
+    account_status = models.CharField(max_length=20, choices=accounts_statuses, default=AccountStatus.PENDING.value)
     description = models.TextField(blank=True)
 
     def __str__(self):

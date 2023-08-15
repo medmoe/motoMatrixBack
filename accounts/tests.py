@@ -63,6 +63,18 @@ class SignUpTestCases(APITransactionTestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertNotEqual(User.objects.count(), 2)
 
+    def test_provider_cannot_sign_in_after_successful_sign_up(self):
+        # Sign up the user
+        response = self.client.post(reverse('signup'), self.data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(User.objects.all().count(), 2)
+
+        # Sign the user in
+        login_data = {"username": self.data['user']['username'], "password": self.data['user']['password']}
+        response = self.client.post(reverse('login'), login_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(str(response.data['detail']), "Your account is not approved yet")
+
 
 class LoginTestCases(APITestCase):
     def setUp(self) -> None:
