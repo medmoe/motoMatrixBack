@@ -136,6 +136,22 @@ class AutoPartListTestCases(APITestCase):
             self.assertIn(key, response.data)
         self.assertEqual(len(response.data['results']), page_size)
 
+    def test_custom_pagination(self):
+        # Set up
+        page_size = 5
+        for i in range(30):
+            AutoPart.objects.create(provider=self.provider, name=f'Part {i}')
+
+        # Authenticate the user
+        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+
+        # Get auto parts
+        response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
+
+        # Assertions
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 5)
+
     def test_image_links_are_correctly_set(self):
         self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
         AutoPart.objects.create(provider=self.provider, image=create_file(), name="test")
