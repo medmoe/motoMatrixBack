@@ -136,6 +136,14 @@ class AutoPartListTestCases(APITestCase):
             self.assertIn(key, response.data)
         self.assertEqual(len(response.data['results']), page_size)
 
+    def test_image_links_are_correctly_set(self):
+        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        AutoPart.objects.create(provider=self.provider, image=create_file(), name="test")
+        response = self.client.get(reverse('auto-parts'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('image', response.data['results'][0])
+        self.assertTrue(response.data['results'][0]['image'].startswith('http'))
+
 
 class AutoPartDetailTestCases(APITestCase):
     def setUp(self):

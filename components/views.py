@@ -22,7 +22,7 @@ class AutoPartList(APIView):
         # Apply Pagination
         paginator = PageNumberPagination()
         paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
-        serializer = AutoPartSerializer(paginated_auto_parts, many=True)
+        serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):

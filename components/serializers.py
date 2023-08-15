@@ -13,3 +13,7 @@ class AutoPartSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         auto_part = AutoPart.objects.create(provider=user.userprofile.provider, **validated_data)
         return auto_part
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        return request.build_absolute_uri(obj.image.url) if obj.image else None
