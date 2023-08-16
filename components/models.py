@@ -53,5 +53,5 @@ class AutoPart(Component):
     condition = models.CharField(max_length=100, choices=auto_part_condition, blank=True)
 
     # Original Equipment Manufacturer number.This is a unique number that identifies the part.
-    OEM_number = models.CharField(max_length=100, blank=True)
-    UPC_number = models.CharField(max_length=100, blank=True)  # Universal Product Code number. if available
+    oem_number = models.CharField(max_length=100, blank=True)
+    upc_number = models.CharField(max_length=100, blank=True)  # Universal Product Code number. if available

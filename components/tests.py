@@ -1,6 +1,7 @@
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
+from django.db import models
 from rest_framework.test import APITestCase
 
 from accounts.models import AccountStatus
@@ -26,8 +27,8 @@ class AutoPartListTestCases(APITestCase):
             'vehicle_model': 'vehicle_model',
             'vehicle_year': 'vehicle_year',
             'condition': AutoPartConditions.NEW.value,
-            'OEM_number': 'OEM_number',
-            'UPC_number': 'UPC_number'
+            'oem_number': 'OEM_number',
+            'upc_number': 'UPC_number'
         }
         self.user = User.objects.create_user(username="username", password="password", email="test@test.com")
         self.provider = Provider.objects.create(user=self.user,
@@ -39,6 +40,28 @@ class AutoPartListTestCases(APITestCase):
                                                       account_status=AccountStatus.APPROVED.value)
         self.consumer_user = User.objects.create_user(username="consumer", password='password', email='user@test.com')
         self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
+
+    def get_field_value(self, field, db_auto_part):
+        field_name = field.name
+        value = getattr(db_auto_part, field_name)
+        if isinstance(field, models.ForeignKey):
+            return value.id
+        elif isinstance(field, models.ImageField):
+            return value.url if value and hasattr(value, 'url') else None
+        elif isinstance(field, models.DecimalField):
+            return str(float(value)) if value is not None else None
+        else:
+            return value
+
+    def compare_api_and_db_fields(self, response_auto_parts):
+        db_auto_parts = AutoPart.objects.filter(provider=self.provider).order_by('name')
+        response_auto_parts = sorted(response_auto_parts, key=lambda x: x['name'])
+        self.assertEqual(len(db_auto_parts), len(response_auto_parts))
+
+        for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
+            for field in db_auto_part._meta.fields:
+                db_field_value = self.get_field_value(field, db_auto_part)
+                self.assertEqual(db_field_value, response_auto_part[field.name])
 
     def test_unauthenticated_provider_cannot_create_auto_part(self):
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
@@ -77,21 +100,10 @@ class AutoPartListTestCases(APITestCase):
         # Set up
         AutoPart.objects.create(provider=self.other_provider, vehicle_make="BMW", vehicle_year="1990")
         self.client.post(reverse('login'), {'username': 'username', 'password': 'password'}, format='json')
-
-        # Execute
         response = self.client.get(reverse("auto-parts"))
-
         # Assertions
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        db_auto_parts = AutoPart.objects.filter(provider=self.provider).order_by('name')
-        response_auto_parts = sorted(response.data['results'], key=lambda x: x['name'])
-        self.assertEqual(len(db_auto_parts), len(response_auto_parts))
-
-        for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
-            for field in db_auto_part._meta.fields:
-                field_name = field.name
-                self.assertEqual(getattr(db_auto_part, field_name), getattr(response_auto_part, field_name))
+        self.compare_api_and_db_fields(response.data['results'])
 
     def test_provider_can_retrieve_auto_parts_list(self):
         # Logging in
@@ -108,6 +120,7 @@ class AutoPartListTestCases(APITestCase):
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], AutoPart.objects.filter(provider=self.provider).count())
+        self.compare_api_and_db_fields(response.data['results'])
 
     def test_consumer_cannot_create_auto_part(self):
         response = self.client.post(reverse('login'), {"username": 'consumer', 'password': "password"}, format='json')
