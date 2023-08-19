@@ -1,11 +1,13 @@
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Provider
 from utils.validators import validate_image
+from .documents import AutoPartDocument
 from .models import AutoPart
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
@@ -90,3 +92,14 @@ class ImageCreation(APIView):
         AutoPart.objects.create(image=file, provider=Provider.objects.get(user=request.user))
 
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)
+
+
+class AutoPartSearchView(ListAPIView):
+    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
+    document = AutoPartDocument
+    serializer_class = AutoPartSerializer
+    search_fields = ('name',)
+
+    def get_queryset(self):
+        search_term = self.request.query_params.get('search', '')
+        return AutoPartDocument.search().query('match', name=search_term)

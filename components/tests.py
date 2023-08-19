@@ -1,14 +1,16 @@
 from django.contrib.auth.models import User
+from django.db import models
 from django.urls import reverse
 from rest_framework import status
-from django.db import models
 from rest_framework.test import APITestCase
 
 from accounts.models import AccountStatus
 from accounts.models import Provider, Consumer
 from utils.helpers import create_file
+from .documents import AutoPartDocument
 from .models import AutoPart, AutoPartCategories, AutoPartConditions
 from .permissions import IsProvider, IsAutoPartOwner
+from django.conf import settings
 
 
 class AutoPartListTestCases(APITestCase):
@@ -343,3 +345,23 @@ class ImageCreationTestCases(APITestCase):
         response = self.client.post(reverse('upload-file'), {'file': create_file(".json")}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(AutoPart.objects.count(), 0)
+
+
+class AutoPartDocumentViewTestCases(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='username', password='password')
+        self.provider = Provider.objects.create(user=self.user,
+                                                is_provider=True,
+                                                account_status=AccountStatus.APPROVED.value)
+        self.client.post(reverse('login'), {'username': 'username', 'password': 'password'}, format='json')
+        self.auto_part = AutoPart.objects.create(provider=self.provider, name="Test Brake Pad")
+
+        # Index the data to elasticsearch
+        AutoPartDocument().update(self.auto_part)
+
+    def test_get_auto_part(self):
+        response = self.client.get(reverse('autoparts-search'), {"search": 'brake'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        print(response.data)
+        auto_parts_names = [auto_part['name'] for auto_part in response.data['results']]
+        self.assertIn(self.auto_part.name, auto_parts_names)
