@@ -9,8 +9,7 @@ from accounts.models import Provider, Consumer
 from utils.helpers import create_file
 from .documents import AutoPartDocument
 from .models import AutoPart, AutoPartCategories, AutoPartConditions
-from .permissions import IsProvider, IsAutoPartOwner
-from django.conf import settings
+from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
 
 
 class AutoPartListTestCases(APITestCase):
@@ -358,10 +357,52 @@ class AutoPartDocumentViewTestCases(APITestCase):
 
         # Index the data to elasticsearch
         AutoPartDocument().update(self.auto_part)
+        self.search_term = 'brake'
 
-    def test_get_auto_part(self):
-        response = self.client.get(reverse('autoparts-search'), {"search": 'brake'})
+    def test_unauthenticated_user_cannot_perform_search(self):
+        # Log out the user
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        response = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(str(response.data['detail']), 'Access token is invalid or expired')
+
+    def test_non_provider_users_cannot_perform_search(self):
+        user = User.objects.create_user(username="consumer", password="password")
+        Consumer.objects.create(user=user, is_provider=False)
+        res = self.client.post(reverse('login'), {"username": user.username, "password": "password"}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Call Search end point
+        res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(str(res.data['detail']), IsProvider.message)
+
+    def test_unapproved_providers_cannot_perform_search(self):
+        self.provider.account_status = AccountStatus.PENDING.value
+        self.provider.save()
+
+        # Attempt to call the search endpoint
+        res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(str(res.data['detail']), IsProviderApproved.message)
+
+    def test_provider_can_retrieve_own_auto_parts_only(self):
+        # create another provider and another auto parts associated with them which has the same search term
+        other = User.objects.create_user(username='other_provider', password='password')
+        provider = Provider.objects.create(user=other, is_provider=True, account_status=AccountStatus.APPROVED.value)
+        auto_part = AutoPart.objects.create(provider=provider, name=self.search_term)
+        AutoPartDocument().update(auto_part)  # Index the created auto part to elasticsearch
+        # Log the created provider
+        res = self.client.post(reverse('login'), {"username": other.username, 'password': 'password'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Attempt to search auto parts
+        res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 1)
+
+    def test_provider_can_search_auto_parts(self):
+        response = self.client.get(reverse('autoparts-search'), {"search": self.search_term})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        print(response.data)
         auto_parts_names = [auto_part['name'] for auto_part in response.data['results']]
+        self.assertEqual(response.data['count'], 1)
         self.assertIn(self.auto_part.name, auto_parts_names)

@@ -1,5 +1,8 @@
+import logging
+
 from rest_framework import serializers
 
+from .documents import AutoPartDocument
 from .models import AutoPart
 
 
@@ -12,8 +15,13 @@ class AutoPartSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user = self.context['request'].user
         auto_part = AutoPart.objects.create(provider=user.userprofile.provider, **validated_data)
+        # Index the created Auto part to elasticsearch
+        try:
+            AutoPartDocument().update(auto_part)
+        except Exception as e:
+            logging.warning(f"Indexing to elasticsearch failed on AutoPart creation: {e}")
         return auto_part
 
     def get_image_url(self, obj):
         request = self.context.get('request')
-        return request.build_absolute_uri(obj.image.url) if obj.image else None
+        return request.build_absolute_uri(obj.image.url) if obj.image and obj.image.url else None

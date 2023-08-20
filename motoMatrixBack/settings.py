@@ -9,10 +9,11 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-import os
 import datetime
-from decouple import config
+import os
 from pathlib import Path
+
+from decouple import config
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,7 +53,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_elasticsearch_dsl',
     'django_elasticsearch_dsl_drf',
-
 
 ]
 
@@ -170,7 +170,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 1000,  # Set the default page size here
+    'PAGE_SIZE': 20,  # Set the default page size here
 }
 
 # JWT configuration
@@ -208,5 +208,39 @@ MEDIA_URL = '/media/'
 ELASTICSEARCH_DSL = {
     'default': {
         'hosts': 'localhost:9200'
+    },
+}
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/debug.log'),
+            'formatter': 'verbose'
+        },
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
 }

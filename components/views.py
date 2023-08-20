@@ -1,6 +1,5 @@
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -47,9 +46,7 @@ class AutoPartDetail(APIView):
     def check_object_permissions(self, request, obj):
         for permission in self.get_permissions():
             if not permission.has_object_permission(request, self, obj):
-                self.permission_denied(
-                    request, message=getattr(permission, 'message', None)
-                )
+                self.permission_denied(request, message=getattr(permission, 'message', None))
 
     def get(self, request, pk):
         auto_part = self.get_object(pk)
@@ -94,12 +91,24 @@ class ImageCreation(APIView):
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)
 
 
-class AutoPartSearchView(ListAPIView):
-    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
-    document = AutoPartDocument
-    serializer_class = AutoPartSerializer
-    search_fields = ('name',)
+class AutoPartSearchView(APIView):
+    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved, IsAutoPartOwner)
 
-    def get_queryset(self):
-        search_term = self.request.query_params.get('search', '')
-        return AutoPartDocument.search().query('match', name=search_term)
+    def check_object_permissions(self, request, obj):
+        for permission in self.get_permissions():
+            if not permission.has_object_permission(request, self, obj):
+                return False
+        return True
+
+    def get(self, request, *args, **kwargs):
+        search_term = request.query_params.get('search', '')
+        search_results = AutoPartDocument.search().query('match', name=search_term)
+        auto_part_ids = [auto_part_document.id for auto_part_document in search_results]
+        auto_parts = AutoPart.objects.filter(id__in=auto_part_ids)
+        has_permission_auto_parts = [auto_part for auto_part in auto_parts if
+                                     self.check_object_permissions(request, auto_part)]
+        # Apply pagination
+        paginator = CustomPageNumberPagination()
+        paginated_auto_parts = paginator.paginate_queryset(has_permission_auto_parts, request)
+        serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)

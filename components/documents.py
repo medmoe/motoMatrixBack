@@ -12,4 +12,4 @@ class AutoPartDocument(Document):
 
     class Django:
         model = AutoPart
-        fields = ['name']
+        fields = ['id', 'name', 'description', 'manufacturer', 'category']
