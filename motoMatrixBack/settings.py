@@ -51,8 +51,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
-    'django_elasticsearch_dsl',
-    'django_elasticsearch_dsl_drf',
 
 ]
 
