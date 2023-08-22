@@ -1,8 +1,24 @@
 from django.contrib.auth.models import User
 from django.db import models
 
+from enum import Enum, unique
 
-# Create your models here.
+
+@unique
+class AccountStatus(Enum):
+    APPROVED = 'APPROVED'
+    PENDING = 'PENDING'
+    REJECTED = 'REJECTED'
+
+
+@unique
+class ProviderTypes(Enum):
+    STORE = 'STORE'
+    INDIVIDUAL = 'INDIVIDUAL'
+    JUNKYARD = 'JUNKYARD'
+    WHOLESALER = 'WHOLESALER'
+    MANUFACTURER = 'MANUFACTURER'
+
 
 class UserProfile(models.Model):
     # One-to-One relation with Django User
@@ -23,20 +39,11 @@ class Consumer(UserProfile):
 
 
 class Provider(UserProfile):
-    PROVIDER_TYPES = (
-        ('store', 'Store'),
-        ('individual', 'Individual'),
-        ('junkyard', 'Junkyard'),
-        ('wholesaler', 'Wholesaler'),
-        ('manufacturer', 'Manufacturer'),
-    )
-    ACCOUNT_STATUS = (
-        ('pending', 'Pending'),
-        ('approved', 'Approved'),
-        ('rejected', 'Rejected'),
-    )
-    provider_type = models.CharField(max_length=20, choices=PROVIDER_TYPES, blank=True)
-    account_status = models.CharField(max_length=20, choices=ACCOUNT_STATUS, default='pending')
+    provider_types = [(provider_type.value, provider_type.name) for provider_type in ProviderTypes]
+    accounts_statuses = [(status.value, status.name) for status in AccountStatus]
+
+    provider_type = models.CharField(max_length=20, choices=provider_types, blank=True)
+    account_status = models.CharField(max_length=20, choices=accounts_statuses, default=AccountStatus.PENDING.value)
     description = models.TextField(blank=True)
 
     def __str__(self):

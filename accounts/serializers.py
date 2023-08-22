@@ -3,7 +3,7 @@ from rest_framework import exceptions
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Consumer, Provider, UserProfile
+from .models import Consumer, Provider, UserProfile, AccountStatus
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -94,7 +94,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Attempt to get account
         provider = Provider.objects.filter(user=user).first()
         if provider:
-            if provider.account_status == "pending":
+            if provider.account_status == AccountStatus.PENDING.value:
                 raise exceptions.PermissionDenied(detail="Your account is not approved yet")
             account = provider
         else:

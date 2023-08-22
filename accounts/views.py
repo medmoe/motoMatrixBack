@@ -11,13 +11,13 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from utils.validators import validate_image
-from .models import Provider, Consumer
+from .models import Provider, Consumer, AccountStatus
 from .permissions import IsAccountOwner
 from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer
 
 
 class SignupView(APIView):
-    authentication_classes = []
+    authentication_classes = []  # Because the user is unauthenticated by default when signing up
     permission_classes = [permissions.AllowAny, ]
 
     def post(self, request):
@@ -109,7 +109,7 @@ class ProfileDetail(APIView):
         # Attempt to get a Provider account with the given username
         account = Provider.objects.filter(user__username=username).first()
 
-        if account and account.account_status == "pending":
+        if account and account.account_status == AccountStatus.PENDING:
             raise PermissionDenied(detail="Your account is not approved yet")
 
         # If not a Provider, try to get a Consumer account
