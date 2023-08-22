@@ -1,3 +1,4 @@
+from django.contrib.postgres.search import SearchVector, SearchQuery
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -6,7 +7,6 @@ from rest_framework.views import APIView
 
 from accounts.models import Provider
 from utils.validators import validate_image
-from .documents import AutoPartDocument
 from .models import AutoPart
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
@@ -18,7 +18,7 @@ class AutoPartList(APIView):
 
     def get(self, request):
         provider = request.user.userprofile.provider
-        auto_parts = AutoPart.objects.filter(provider=provider).order_by('id')
+        auto_parts = AutoPart.objects.filter(provider=provider)
 
         # Apply Pagination
         paginator = CustomPageNumberPagination()
@@ -92,23 +92,22 @@ class ImageCreation(APIView):
 
 
 class AutoPartSearchView(APIView):
-    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved, IsAutoPartOwner)
-
-    def check_object_permissions(self, request, obj):
-        for permission in self.get_permissions():
-            if not permission.has_object_permission(request, self, obj):
-                return False
-        return True
+    permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
 
     def get(self, request, *args, **kwargs):
         search_term = request.query_params.get('search', '')
-        search_results = AutoPartDocument.search().query('match', name=search_term)
-        auto_part_ids = [auto_part_document.id for auto_part_document in search_results]
-        auto_parts = AutoPart.objects.filter(id__in=auto_part_ids)
-        has_permission_auto_parts = [auto_part for auto_part in auto_parts if
-                                     self.check_object_permissions(request, auto_part)]
+
+        # Define the search vector and query
+        vector = SearchVector('name', 'description', 'category', 'manufacturer', 'condition')
+        query = SearchQuery(search_term)
+
+        # Filter auto parts based on ownership and then apply the search criteria
+        auto_parts = AutoPart.objects.filter(provider__user=request.user).annotate(search=vector).filter(search=query)
+
         # Apply pagination
         paginator = CustomPageNumberPagination()
-        paginated_auto_parts = paginator.paginate_queryset(has_permission_auto_parts, request)
+        paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
+
+        # Serialize and return the response.
         serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)

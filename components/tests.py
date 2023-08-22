@@ -1,15 +1,18 @@
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
+from django.utils.timezone import is_aware, make_naive
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from accounts.authentication import AUTHENTICATION_FAILED_MESSAGES
 from accounts.models import AccountStatus
 from accounts.models import Provider, Consumer
 from utils.helpers import create_file
-from .documents import AutoPartDocument
 from .models import AutoPart, AutoPartCategories, AutoPartConditions
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
+
+PASSWORD = 'PASSWORD'
 
 
 class AutoPartListTestCases(APITestCase):
@@ -51,6 +54,10 @@ class AutoPartListTestCases(APITestCase):
             return value.url if value and hasattr(value, 'url') else None
         elif isinstance(field, models.DecimalField):
             return str(float(value)) if value is not None else None
+        elif isinstance(field, models.DateTimeField):
+            if is_aware(value):
+                value = make_naive(value)
+            return value.isoformat() + "Z"
         else:
             return value
 
@@ -59,10 +66,16 @@ class AutoPartListTestCases(APITestCase):
         response_auto_parts = sorted(response_auto_parts, key=lambda x: x['name'])
         self.assertEqual(len(db_auto_parts), len(response_auto_parts))
 
+        failed_assertions = []
         for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
             for field in db_auto_part._meta.fields:
-                db_field_value = self.get_field_value(field, db_auto_part)
-                self.assertEqual(db_field_value, response_auto_part[field.name])
+                if field.name in response_auto_part:
+                    db_field_value = self.get_field_value(field, db_auto_part)
+                    if db_field_value != response_auto_part[field.name]:
+                        failed_assertions.append(field.name)
+                else:
+                    failed_assertions.append(f"{field.name} (missing in response")
+        self.assertEqual(len(failed_assertions), 0, f"Fields with mismatches{', '.join(failed_assertions)}")
 
     def test_unauthenticated_provider_cannot_create_auto_part(self):
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
@@ -144,7 +157,7 @@ class AutoPartListTestCases(APITestCase):
         for i in range(page_size + 5):
             AutoPart.objects.create(provider=self.provider, name=f'Part {i}')
         self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
-        response = self.client.get(reverse('auto-parts'))
+        response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for key in ('count', 'next', 'previous', 'results'):
             self.assertIn(key, response.data)
@@ -346,41 +359,62 @@ class ImageCreationTestCases(APITestCase):
         self.assertEqual(AutoPart.objects.count(), 0)
 
 
-class AutoPartDocumentViewTestCases(APITestCase):
+class AutoPartSearchViewTestCases(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='username', password='password')
-        self.provider = Provider.objects.create(user=self.user,
-                                                is_provider=True,
-                                                account_status=AccountStatus.APPROVED.value)
-        self.client.post(reverse('login'), {'username': 'username', 'password': 'password'}, format='json')
-        self.auto_part = AutoPart.objects.create(provider=self.provider, name="Test Brake Pad")
-
-        # Index the data to elasticsearch
-        AutoPartDocument().update(self.auto_part)
         self.search_term = 'brake'
 
+    def create_and_authenticate_user(self, **kwargs):
+        username = kwargs.pop("username", None)
+        email = kwargs.pop("email", None)
+        is_provider = kwargs.pop("is_provider", None)
+        user = User.objects.create_user(username=username, email=email, password=PASSWORD)
+        if is_provider:
+            account = Provider.objects.create(user=user, is_provider=True, **kwargs)
+        else:
+            account = Consumer.objects.create(user=user, **kwargs)
+        # Authenticate the user
+        response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        return account
+
+    def create_auto_parts(self, provider, auto_parts=1, unknown_auto_parts=10, **kwargs):
+        """
+        Creates auto parts.
+
+        Arguments:
+            - provider: The provider associated with the auto parts.
+            - auto_parts: The number of auto parts to create with the provided kwargs.
+            - unknown_auto_parts: The number of auto parts to create with the name "Unknown".
+
+        Returns:
+            List of created AutoPart objects.
+        """
+        if not isinstance(provider, Provider):
+            raise ValueError(f"Expected 'provider' to be an instance of Provider, got {type(provider)}")
+
+        auto_parts_objects = [AutoPart(provider=provider, **kwargs) for _ in range(auto_parts)]
+        auto_parts_objects.extend([AutoPart(provider=provider, name="Unknown") for _ in range(unknown_auto_parts)])
+        created_auto_parts = AutoPart.objects.bulk_create(auto_parts_objects)
+
+        return created_auto_parts
+
     def test_unauthenticated_user_cannot_perform_search(self):
-        # Log out the user
-        response = self.client.post(reverse('logout'))
-        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
         response = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), 'Access token is invalid or expired')
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
     def test_non_provider_users_cannot_perform_search(self):
-        user = User.objects.create_user(username="consumer", password="password")
-        Consumer.objects.create(user=user, is_provider=False)
-        res = self.client.post(reverse('login'), {"username": user.username, "password": "password"}, format='json')
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        # Call Search end point
+        self.create_and_authenticate_user(username="username", email="test@test.com")
         res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(res.data['detail']), IsProvider.message)
 
     def test_unapproved_providers_cannot_perform_search(self):
-        self.provider.account_status = AccountStatus.PENDING.value
-        self.provider.save()
-
+        account = self.create_and_authenticate_user(username="unapproved", is_provider=True,
+                                                    account_status=AccountStatus.APPROVED.value)
+        account.account_status = AccountStatus.PENDING.value,
+        account.save()
         # Attempt to call the search endpoint
         res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
@@ -388,21 +422,32 @@ class AutoPartDocumentViewTestCases(APITestCase):
 
     def test_provider_can_retrieve_own_auto_parts_only(self):
         # create another provider and another auto parts associated with them which has the same search term
-        other = User.objects.create_user(username='other_provider', password='password')
-        provider = Provider.objects.create(user=other, is_provider=True, account_status=AccountStatus.APPROVED.value)
-        auto_part = AutoPart.objects.create(provider=provider, name=self.search_term)
-        AutoPartDocument().update(auto_part)  # Index the created auto part to elasticsearch
-        # Log the created provider
-        res = self.client.post(reverse('login'), {"username": other.username, 'password': 'password'})
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        other_provider = self.create_and_authenticate_user(username='other_provider',
+                                                           is_provider=True,
+                                                           account_status=AccountStatus.APPROVED.value)
+        self.create_auto_parts(other_provider, name=self.search_term)
+        # now we create the provider to perform the search
+        provider = self.create_and_authenticate_user(username="provider",
+                                                     is_provider=True,
+                                                     account_status=AccountStatus.APPROVED.value)
+
+        self.create_auto_parts(provider, name=self.search_term)
         # Attempt to search auto parts
         res = self.client.get(reverse('autoparts-search'), {'search': self.search_term})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data['count'], 1)
+        auto_part = res.data['results'][0]
+        self.assertEqual(auto_part['provider'], provider.userprofile_ptr_id)
+        self.assertEqual(auto_part['name'], self.search_term)
 
     def test_provider_can_search_auto_parts(self):
+        provider = self.create_and_authenticate_user(username="provider",
+                                                     is_provider=True,
+                                                     account_status=AccountStatus.APPROVED.value)
+        self.create_auto_parts(provider, auto_parts=10, name=self.search_term)
+        self.assertEqual(AutoPart.objects.filter(name=self.search_term).count(), 10)
         response = self.client.get(reverse('autoparts-search'), {"search": self.search_term})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        auto_parts_names = [auto_part['name'] for auto_part in response.data['results']]
-        self.assertEqual(response.data['count'], 1)
-        self.assertIn(self.auto_part.name, auto_parts_names)
+        self.assertEqual(response.data['count'], 10)  # that's the number of auto parts we created with 'search_term'
+        for auto_part in response.data['results']:
+            self.assertEqual(auto_part['name'], self.search_term)

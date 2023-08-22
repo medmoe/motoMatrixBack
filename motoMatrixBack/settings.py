@@ -211,7 +211,7 @@ ELASTICSEARCH_DSL = {
     },
 }
 
-# Logging configuration
+# Logger configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

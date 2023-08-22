@@ -36,11 +36,13 @@ class Component(models.Model):
     image = models.ImageField(upload_to='component_images', null=True)
     weight = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     dimensions = models.CharField(max_length=100, blank=True)
-    location = models.CharField(max_length=100,
-                                blank=True)  # the physical location of the component in the store or the warehouse
+    # the physical location of the component in the store or the warehouse
+    location = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
+        ordering = ['created_at']
 
 
 class AutoPart(Component):
