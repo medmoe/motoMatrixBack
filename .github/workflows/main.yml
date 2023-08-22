@@ -40,7 +40,7 @@ jobs:
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
-          python manage.py makemigrations
+          python manage.py makemigrations --noinput
           python manage.py migrate
 
       - name: Run tests
