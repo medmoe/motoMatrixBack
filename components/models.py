@@ -45,7 +45,8 @@ class Component(models.Model):
         ordering = ['created_at']
 
 
-class AutoPart(Component):
+class AutoPart(models.Model):
+    component = models.OneToOneField(Component, on_delete=models.CASCADE)
     auto_part_condition = [(condition.value, condition.name) for condition in AutoPartConditions]
     auto_part_category = [(category.value, category.name) for category in AutoPartCategories]
     category = models.CharField(max_length=20, choices=auto_part_category, blank=True)
