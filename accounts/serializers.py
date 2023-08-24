@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
-from rest_framework import exceptions
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError, PermissionDenied, AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from components.serializers import AutoPartSerializer
@@ -10,6 +10,8 @@ from .models import Consumer, Provider, UserProfile, AccountStatus
 MISSING_USER_DATA_ERROR = "Required user data is missing."
 AUTHENTICATION_ERROR = "No active account found with the given credentials."
 ACCOUNT_STATUS_ERROR = "Account is not approved yet."
+USERNAME_ALREADY_IN_USE_ERROR = 'Username is already in use.'
+EMAIL_ALREADY_IN_USE_ERROR = "Email address is already in use."
 
 
 # Helper functions
@@ -54,13 +56,13 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_username(self, value):
         request = self.context['request']
         if User.objects.exclude(pk=request.user.pk).filter(username=value).exists():
-            raise serializers.ValidationError(detail="Username is already in use")
+            raise ValidationError(detail=USERNAME_ALREADY_IN_USE_ERROR)
         return value
 
     def validate_email(self, value):
         request = self.context['request']
         if User.objects.exclude(pk=request.user.pk).filter(email=value).exists():
-            raise serializers.ValidationError(detail="Email is already in use")
+            raise ValidationError(detail=EMAIL_ALREADY_IN_USE_ERROR)
         return value
 
 
@@ -73,7 +75,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user_data = validated_data.pop('user', None)
-        user_serializer = UserSerializer(data=user_data)
+        user_serializer = UserSerializer(data=user_data, context=self.context)
         user_serializer.is_valid(raise_exception=True)
         user = user_serializer.save()
         return UserProfile.objects.create(user=user, **validated_data)
@@ -96,7 +98,7 @@ class ProviderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         userprofile_data = validated_data.pop('userprofile')
-        userprofile_serializer = UserProfileSerializer(data=userprofile_data)
+        userprofile_serializer = UserProfileSerializer(data=userprofile_data, context=self.context)
         userprofile_serializer.is_valid(raise_exception=True)
         userprofile = userprofile_serializer.save()
         return Provider.objects.create(userprofile=userprofile, **validated_data)
@@ -139,20 +141,20 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Attempt to get user
         user = User.objects.filter(username=attrs['username']).first()
         if not user:
-            raise exceptions.AuthenticationFailed(detail=AUTHENTICATION_ERROR)
+            raise AuthenticationFailed(detail=AUTHENTICATION_ERROR)
 
         # Determine the type of the account( Provider or Consumer)
         account = None
         if Provider.objects.filter(userprofile__user=user).exists():
             provider = Provider.objects.get(userprofile__user=user)
             if provider.account_status == AccountStatus.PENDING.value:
-                raise exceptions.PermissionDenied(detail=ACCOUNT_STATUS_ERROR)
+                raise PermissionDenied(detail=ACCOUNT_STATUS_ERROR)
             account = provider
         elif Consumer.objects.filter(userprofile__user=user).exists():
             account = Consumer.objects.get(userprofile__user=user)
 
         if not account:
-            raise exceptions.AuthenticationFailed(detail=AUTHENTICATION_ERROR)
+            raise AuthenticationFailed(detail=AUTHENTICATION_ERROR)
 
         data = super().validate(attrs)
         refresh = self.get_token(self.user)

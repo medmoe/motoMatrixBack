@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework import status
+from rest_framework.status import HTTP_201_CREATED, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 from rest_framework.test import APITestCase, APITransactionTestCase
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -14,66 +14,70 @@ from sendgrid.helpers.mail import Mail
 from utils.helpers import create_file
 from .models import Provider, Consumer, AccountStatus
 from .permissions import IsAccountOwner
+from .serializers import ACCOUNT_STATUS_ERROR, MISSING_USER_DATA_ERROR, USERNAME_ALREADY_IN_USE_ERROR, \
+    EMAIL_ALREADY_IN_USE_ERROR
 
 
 class SignUpTestCases(APITransactionTestCase):
     def setUp(self):
         self.data = {
-            'user': {
-                "username": "newusername",
-                "password": 'newpassword',
-                "email": 'test@test.com',
-            },
             'is_provider': True,
+            'userprofile': {
+                'user': {
+                    "username": "newusername",
+                    "password": 'newpassword',
+                    "email": 'test@test.com',
+                },
+            }
+
         }
         self.existed_user = User.objects.create_user(username='existed_user',
                                                      password="password",
                                                      email="existed@test.com")
+        self.initial_user_count = User.objects.count()
 
-    def test_user_can_sign_up(self):
+    def attempt_registration_and_assert_failure(self, data):
+        response = self.client.post(reverse('signup'), data, format='json')
+        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
+        self.assertEqual(User.objects.count(), self.initial_user_count)
+
+    def test_new_user_registration_is_successful(self):
         response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.count(), 2)
-        created_user = User.objects.get(id=response.data['user']['id'])
-        self.assertEqual(created_user.username, self.data['user']['username'])
-        self.assertEqual(created_user.email, self.data['user']['email'])
-        self.assertNotEqual(created_user.password, self.data['user']['password'])
+        self.assertEqual(response.status_code, HTTP_201_CREATED)
+        self.assertNotEqual(User.objects.count(), self.initial_user_count)
+        created_user = User.objects.get(id=response.data['userprofile']['user']['id'])
+        self.assertEqual(created_user.username, self.data['userprofile']['user']['username'])
+        self.assertEqual(created_user.email, self.data['userprofile']['user']['email'])
+        self.assertNotEqual(created_user.password, self.data['userprofile']['user']['password'])
 
-    def test_user_must_provide_username(self):
-        self.data['user'].pop("username")
-        response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(User.objects.count(), 1)
+    def test_registration_fails_without_username(self):
+        self.data['userprofile']['user'].pop("username")
+        self.attempt_registration_and_assert_failure(self.data)
 
-    def test_user_must_provide_email(self):
-        self.data['user'].pop("email")
-        response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(User.objects.count(), 1)
+    def test_registration_fails_without_email(self):
+        self.data['userprofile']['user'].pop("email")
+        self.attempt_registration_and_assert_failure(self.data)
 
-    def test_user_cannot_sign_up_with_an_existed_username(self):
-        self.data['user']["username"] = self.existed_user.username
-        response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertNotEqual(User.objects.count(), 2)
+    def test_registration_fails_with_existing_username(self):
+        self.data['userprofile']['user']["username"] = self.existed_user.username
+        self.attempt_registration_and_assert_failure(self.data)
 
-    def test_user_cannot_sign_up_with_an_existed_email(self):
-        self.data['user']["email"] = self.existed_user.email
-        response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertNotEqual(User.objects.count(), 2)
+    def test_registration_fails_with_existing_email(self):
+        self.data['userprofile']['user']["email"] = self.existed_user.email
+        self.attempt_registration_and_assert_failure(self.data)
 
-    def test_provider_cannot_sign_in_after_successful_sign_up(self):
+    def test_new_provider_cannot_login_due_to_account_status(self):
         # Sign up the user
         response = self.client.post(reverse('signup'), self.data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.all().count(), 2)
+        self.assertEqual(response.status_code, HTTP_201_CREATED)
+        self.assertNotEqual(User.objects.count(), self.initial_user_count)
 
         # Sign the user in
-        login_data = {"username": self.data['user']['username'], "password": self.data['user']['password']}
+        login_data = {"username": self.data['userprofile']['user']['username'],
+                      "password": self.data['userprofile']['user']['password']}
         response = self.client.post(reverse('login'), login_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(str(response.data['detail']), "Your account is not approved yet")
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+        self.assertEqual(str(response.data['detail']), ACCOUNT_STATUS_ERROR)
 
 
 class LoginTestCases(APITestCase):

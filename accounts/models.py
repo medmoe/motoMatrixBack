@@ -47,7 +47,7 @@ class Provider(models.Model):
     """ Defines the provider """
 
     userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
-    store_name = models.CharField(max_length=50)
+    store_name = models.CharField(max_length=50, blank=True)
     store_description = models.TextField(blank=True)
     account_status = models.CharField(max_length=20, choices=AccountStatus.choices, default=AccountStatus.PENDING)
     store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), blank=True)
