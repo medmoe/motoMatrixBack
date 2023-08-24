@@ -1,10 +1,14 @@
+from functools import partial
+
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 from utils.helpers import uploaded_file_directory_path
-from components.models import AutoPart
+
+PROFILE_PIC_DIR = 'profile_pic/'
+STORE_LOGO_DIR = 'store_logo/'
 
 
 class AccountStatus(models.TextChoices):
@@ -25,9 +29,7 @@ class UserProfile(models.Model):
     """ Defines the user profile in the system """
 
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    profile_pic = models.ImageField(
-        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "profile_pic/"),
-        blank=True)
+    profile_pic = models.ImageField(upload_to=partial(uploaded_file_directory_path, PROFILE_PIC_DIR), blank=True)
     phone = PhoneNumberField(blank=True)
     address = models.CharField(max_length=200, blank=True)
     city = models.CharField(max_length=50, blank=True)
@@ -48,10 +50,7 @@ class Provider(models.Model):
     store_name = models.CharField(max_length=50)
     store_description = models.TextField(blank=True)
     account_status = models.CharField(max_length=20, choices=AccountStatus.choices, default=AccountStatus.PENDING)
-    store_logo = models.ImageField(
-        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "store_logo/"),
-        blank=True
-    )
+    store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), blank=True)
     cached_average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
     number_of_sales = models.IntegerField(default=0)
     provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, null=True)
@@ -61,9 +60,9 @@ class Consumer(models.Model):
     """ Defines the consumer """
 
     userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
-    wishlist = models.ManyToManyField(AutoPart, on_delete=models.CASCADE)
-    cart = models.ManyToManyField(AutoPart, on_delete=models.CASCADE)
-    favorite_providers = models.ManyToManyField(Provider, on_delete=models.CASCADE)
+    wishlist = models.ManyToManyField('components.AutoPart', related_name="wishlist")
+    cart = models.ManyToManyField('components.AutoPart', related_name="cart")
+    favorite_providers = models.ManyToManyField(Provider, related_name="favorite_providers")
 
 
 class Rating(models.Model):

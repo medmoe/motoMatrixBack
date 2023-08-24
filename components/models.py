@@ -2,7 +2,6 @@ from enum import Enum, unique
 
 from django.db import models
 
-from accounts.models import Provider
 
 
 @unique
@@ -27,7 +26,7 @@ class AutoPartCategories(Enum):
 
 
 class Component(models.Model):
-    provider = models.ForeignKey(Provider, on_delete=models.CASCADE)
+    provider = models.ForeignKey('accounts.Provider', on_delete=models.CASCADE)
     name = models.CharField(max_length=100, blank=True)
     description = models.TextField(blank=True)
     manufacturer = models.CharField(max_length=100, blank=True)
@@ -41,7 +40,6 @@ class Component(models.Model):
     created_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        abstract = True
         ordering = ['created_at']
 
 

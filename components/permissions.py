@@ -1,6 +1,5 @@
 from rest_framework.permissions import BasePermission
-from .models import Provider
-from accounts.models import AccountStatus
+from accounts.models import AccountStatus, Provider
 
 
 class IsProvider(BasePermission):
