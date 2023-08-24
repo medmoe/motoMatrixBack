@@ -45,24 +45,25 @@ class Provider(models.Model):
     """ Defines the provider """
 
     userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
-    store_name = models.CharField(max_length=50, blank=True)
-    store_description = models.TextField()
-    account_status = models.CharField(max_length=20, choices=AccountStatus.choices, null=True)
+    store_name = models.CharField(max_length=50)
+    store_description = models.TextField(blank=True)
+    account_status = models.CharField(max_length=20, choices=AccountStatus.choices, default=AccountStatus.PENDING)
     store_logo = models.ImageField(
-        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "store_logo/")
+        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "store_logo/"),
+        blank=True
     )
     cached_average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
     number_of_sales = models.IntegerField(default=0)
-    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, blank=True, null=True)
+    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, null=True)
 
 
 class Consumer(models.Model):
     """ Defines the consumer """
 
     userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
-    wishlist = models.ForeignKey(AutoPart, on_delete=models.CASCADE)
-    cart = models.ForeignKey(AutoPart, on_delete=models.CASCADE)
-    favorite_providers = models.ForeignKey(Provider, on_delete=models.CASCADE)
+    wishlist = models.ManyToManyField(AutoPart, on_delete=models.CASCADE)
+    cart = models.ManyToManyField(AutoPart, on_delete=models.CASCADE)
+    favorite_providers = models.ManyToManyField(Provider, on_delete=models.CASCADE)
 
 
 class Rating(models.Model):
@@ -72,7 +73,7 @@ class Rating(models.Model):
     rater = models.ForeignKey(Consumer, on_delete=models.CASCADE)
     stars = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     review_text = models.TextField(blank=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
