@@ -14,7 +14,7 @@ from utils.validators import validate_image
 from .models import Provider, Consumer, AccountStatus
 from .permissions import IsAccountOwner
 from .serializers import CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer, \
-    MISSING_USER_DATA_ERROR
+    MISSING_USER_DATA_ERROR, ACCOUNT_STATUS_ERROR, ACCOUNT_NOT_FOUND_ERROR, IMAGE_UPLOAD_ERROR
 
 
 class SignupView(APIView):
@@ -23,7 +23,7 @@ class SignupView(APIView):
 
     def post(self, request):
         is_provider = request.data.pop('is_provider', None)
-        if not is_provider:
+        if is_provider is None:
             raise ValidationError(detail=MISSING_USER_DATA_ERROR)
 
         if is_provider:
@@ -116,18 +116,18 @@ class ProfileDetail(APIView):
     @staticmethod
     def get_account(username):
         # Attempt to get a Provider account with the given username
-        account = Provider.objects.filter(user__username=username).first()
+        account = Provider.objects.filter(userprofile__user__username=username).first()
 
         if account and account.account_status == AccountStatus.PENDING:
-            raise PermissionDenied(detail="Your account is not approved yet")
+            raise PermissionDenied(detail=ACCOUNT_STATUS_ERROR)
 
         # If not a Provider, try to get a Consumer account
         if not account:
-            account = Consumer.objects.filter(user__username=username).first()
+            account = Consumer.objects.filter(userprofile__user__username=username).first()
 
         # If neither Provider nor Consumer account found, raise an error
         if not account:
-            raise NotFound(detail="Account does not exist")
+            raise NotFound(detail=ACCOUNT_NOT_FOUND_ERROR)
 
         return account
 
@@ -140,7 +140,7 @@ class ProfileDetail(APIView):
         account = self.get_account(username)
         self.check_object_permissions(request, account)
 
-        if account.is_provider:
+        if isinstance(account, Provider):
             serializer = ProviderSerializer(account, request.data, partial=True, context={'request': request})
         else:
             serializer = ConsumerSerializer(account, request.data, partial=True, context={'request': request})
@@ -148,8 +148,8 @@ class ProfileDetail(APIView):
         if serializer.is_valid():
             serializer.save()
             response_data = serializer.data.copy()
-            if response_data['profile_pic']:
-                response_data['profile_pic'] = request.build_absolute_uri(response_data['profile_pic'])
+            if response_data['userprofile']['profile_pic']:
+                response_data['userprofile']['profile_pic'] = request.build_absolute_uri(response_data['userprofile']['profile_pic'])
             return Response(response_data, status=status.HTTP_200_OK)
 
         raise ValidationError(detail=serializer.errors)
@@ -176,19 +176,19 @@ class FileUpload(APIView):
 
         # check if the file has been sent with the request
         if 'profile_pic' not in request.FILES:
-            raise ValidationError(detail="No file provided")
+            raise ValidationError(detail=MISSING_USER_DATA_ERROR)
 
         # get the file from the request
         file = request.FILES['profile_pic']
 
         if not validate_image(file):
-            raise ValidationError(detail="Uploaded file is not a valid image")
+            raise ValidationError(detail=IMAGE_UPLOAD_ERROR)
 
         # Assign the file to the account
-        account.profile_pic = file
-        account.save()
+        account.userprofile.profile_pic = file
+        account.userprofile.save()
 
         # get the url of the saved file
-        file_url = request.build_absolute_uri(account.profile_pic.url)
+        file_url = request.build_absolute_uri(account.userprofile.profile_pic.url)
 
         return Response({'detail': "File uploaded successfully", 'file': file_url}, status.HTTP_200_OK)

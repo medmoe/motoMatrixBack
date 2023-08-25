@@ -14,6 +14,8 @@ ACCOUNT_STATUS_ERROR = "Account is not approved yet."
 USERNAME_ALREADY_IN_USE_ERROR = 'Username is already in use.'
 EMAIL_ALREADY_IN_USE_ERROR = "Email address is already in use."
 INVALID_EMAIL_ERROR = "Enter a valid email address."
+ACCOUNT_NOT_FOUND_ERROR = "Account does not exist."
+IMAGE_UPLOAD_ERROR = "Uploaded file is not a valid image."
 
 
 # Helper functions
@@ -26,8 +28,14 @@ def update_instance_from_data(instance, validated_data):
 
 class UserSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=True)
-    password = serializers.CharField(required=True)
+    password = serializers.CharField(required=False)
     email = serializers.CharField(required=True, validators=[EmailValidator(message=INVALID_EMAIL_ERROR)])
+
+    def __init__(self, *args, **kwargs):
+        super(UserSerializer, self).__init__(*args, **kwargs)
+        request = self.context.get('request', None)
+        if request and request.method == "POST":
+            self.fields['password'].required = True
 
     class Meta:
         model = User
@@ -85,7 +93,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', None)
         if user_data:
-            user_serializer = UserSerializer(instance.user, user_data)
+            user_serializer = UserSerializer(instance.user, user_data, context=self.context)
             user_serializer.is_valid(raise_exception=True)
             user_serializer.save()
         return update_instance_from_data(instance, validated_data)
@@ -107,10 +115,12 @@ class ProviderSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         userprofile_data = validated_data.pop('userprofile')
-        userprofile_serializer = UserProfileSerializer(instance=instance, data=userprofile_data)
+        userprofile_serializer = UserProfileSerializer(instance.userprofile,
+                                                       data=userprofile_data,
+                                                       context=self.context)
         userprofile_serializer.is_valid(raise_exception=True)
         userprofile_serializer.save()
-        return update_instance_from_data(instance, **validated_data)
+        return update_instance_from_data(instance, validated_data)
 
 
 class ConsumerSerializer(serializers.ModelSerializer):
@@ -125,17 +135,19 @@ class ConsumerSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         userprofile_data = validated_data.pop('userprofile')
-        userprofile_serializer = UserProfileSerializer(data=userprofile_data)
+        userprofile_serializer = UserProfileSerializer(data=userprofile_data, context=self.context)
         userprofile_serializer.is_valid(raise_exception=True)
         userprofile = userprofile_serializer.save()
         return Consumer.objects.create(userprofile=userprofile, **validated_data)
 
     def update(self, instance, validated_data):
         userprofile_data = validated_data.pop('userprofile')
-        userprofile_serializer = UserProfileSerializer(data=userprofile_data)
+        userprofile_serializer = UserProfileSerializer(instance.userprofile,
+                                                       data=userprofile_data,
+                                                       context=self.context)
         userprofile_serializer.is_valid(raise_exception=True)
         userprofile_serializer.save()
-        return update_instance_from_data(instance, **validated_data)
+        return update_instance_from_data(instance, validated_data)
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
