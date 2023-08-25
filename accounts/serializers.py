@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.validators import EmailValidator
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError, PermissionDenied, AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -12,6 +13,7 @@ AUTHENTICATION_ERROR = "No active account found with the given credentials."
 ACCOUNT_STATUS_ERROR = "Account is not approved yet."
 USERNAME_ALREADY_IN_USE_ERROR = 'Username is already in use.'
 EMAIL_ALREADY_IN_USE_ERROR = "Email address is already in use."
+INVALID_EMAIL_ERROR = "Enter a valid email address."
 
 
 # Helper functions
@@ -25,7 +27,7 @@ def update_instance_from_data(instance, validated_data):
 class UserSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=True)
     password = serializers.CharField(required=True)
-    email = serializers.CharField(required=True)
+    email = serializers.CharField(required=True, validators=[EmailValidator(message=INVALID_EMAIL_ERROR)])
 
     class Meta:
         model = User

@@ -6,16 +6,23 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework.status import HTTP_201_CREATED, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
+from rest_framework.status import \
+    HTTP_201_CREATED, \
+    HTTP_400_BAD_REQUEST, \
+    HTTP_403_FORBIDDEN, \
+    HTTP_200_OK, \
+    HTTP_401_UNAUTHORIZED, \
+    HTTP_205_RESET_CONTENT
 from rest_framework.test import APITestCase, APITransactionTestCase
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
+from accounts.authentication import AUTHENTICATION_FAILED_MESSAGES
 from utils.helpers import create_file
-from .models import Provider, Consumer, AccountStatus
+from .models import Provider, Consumer, AccountStatus, UserProfile
 from .permissions import IsAccountOwner
-from .serializers import ACCOUNT_STATUS_ERROR, MISSING_USER_DATA_ERROR, USERNAME_ALREADY_IN_USE_ERROR, \
-    EMAIL_ALREADY_IN_USE_ERROR
+from .serializers import ACCOUNT_STATUS_ERROR, AUTHENTICATION_ERROR
 
 
 class SignUpTestCases(APITransactionTestCase):
@@ -66,6 +73,10 @@ class SignUpTestCases(APITransactionTestCase):
         self.data['userprofile']['user']["email"] = self.existed_user.email
         self.attempt_registration_and_assert_failure(self.data)
 
+    def test_registration_fails_with_invalid_email(self):
+        self.data['userprofile']['user']['email'] = "invalid_email"
+        self.attempt_registration_and_assert_failure(self.data)
+
     def test_new_provider_cannot_login_due_to_account_status(self):
         # Sign up the user
         response = self.client.post(reverse('signup'), self.data, format='json')
@@ -84,76 +95,87 @@ class LoginTestCases(APITestCase):
     def setUp(self) -> None:
         self.existed_user = User.objects.create_user(username="existed_user", password="password",
                                                      email="test@test.com")
-        self.provider = Provider.objects.create(user=self.existed_user,
-                                                is_provider=True,
-                                                account_status=AccountStatus.APPROVED.value)
+        self.userprofile = UserProfile.objects.create(user=self.existed_user)
+        self.provider = Provider.objects.create(userprofile=self.userprofile,
+                                                account_status=AccountStatus.APPROVED)
 
-    def test_provider_can_login(self) -> None:
-        response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    def test_provider_login_is_successful(self) -> None:
+        response = self.client.post(reverse("login"), {"username": self.existed_user.username, "password": "password"})
+        self.assertEqual(response.status_code, HTTP_200_OK)
         # make sure that the data is returned in the response
-        self.assertEqual(response.data['user']['username'], self.existed_user.username)
-        self.assertEqual(response.data['user']['email'], self.existed_user.email)
+        self.assertEqual(response.data['userprofile']['user']['username'], self.existed_user.username)
+        self.assertEqual(response.data['userprofile']['user']['email'], self.existed_user.email)
         # make sure that the password is not included in the response
-        self.assertNotIn("password", response.data['user'])
+        self.assertNotIn("password", response.data['userprofile']['user'])
+        # make sure that the access and refresh tokens are embedded in the cookies
+        for key in ('refresh', 'access'):
+            self.assertIn(key, response.cookies)
 
-    def test_pending_provider_cannot_login(self):
-        self.provider.account_status = AccountStatus.PENDING.value
+    def test_provider_login_fails_with_pending_account(self):
+        self.provider.account_status = AccountStatus.PENDING
         self.provider.save()
-        response = self.client.post(reverse("login"), {"username": "existed_user", "password": "password"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertNotIn('user', response.data)
-        self.assertEqual(str(response.data['detail']), "Your account is not approved yet")
+        response = self.client.post(reverse("login"), {"username": self.existed_user.username, "password": "password"})
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+        self.assertEqual(str(response.data['detail']), ACCOUNT_STATUS_ERROR)
+        for key in ('refresh', 'access'):
+            self.assertNotIn(key, response.cookies)
 
     def test_consumer_can_login(self):
         another_user = User.objects.create_user(username="another_user", password="password", email="other@test.com")
-        consumer = Consumer.objects.create(user=another_user, is_provider=False)
-        response = self.client.post(reverse("login"),
-                                    {"username": "another_user", "password": "password"},
-                                    format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('user', response.data)
-        self.assertEqual(response.data['user']['username'], consumer.user.username)
-        self.assertEqual(response.data['user']['email'], consumer.user.email)
-        self.assertEqual(response.data['is_provider'], consumer.is_provider)
+        another_userprofile = UserProfile.objects.create(user=another_user)
+        consumer = Consumer.objects.create(userprofile=another_userprofile)
+        login_data = {"username": another_user.username, "password": "password"}
+        response = self.client.post(reverse("login"), login_data, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.assertEqual(response.data['userprofile']['user']['username'], consumer.userprofile.user.username)
+        self.assertEqual(response.data['userprofile']['user']['email'], consumer.userprofile.user.email)
+        for key in ('refresh', 'access'):
+            self.assertIn(key, response.cookies)
 
     def test_user_cannot_login_with_wrong_credentials(self):
         response = self.client.post(reverse('login'),
                                     {"username": "does not exist", "password": "password"},
                                     format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertNotIn('user', response.data)
-        self.assertEqual(str(response.data['detail']), "No active account found with the given credentials")
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertEqual(str(response.data['detail']), AUTHENTICATION_ERROR)
 
 
 class LogoutTestCases(APITestCase):
     def setUp(self):
-        self.consumer_user = User.objects.create_user(username="consumer",
-                                                      password="password",
+        self.consumer_user = User.objects.create_user(username="consumer", password="password",
                                                       email="consumer@test.com")
-        self.provider_user = User.objects.create_user(username="provider",
-                                                      password="password",
+        self.provider_user = User.objects.create_user(username="provider", password="password",
                                                       email="provider@test.com")
-        self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
-        self.provider = Provider.objects.create(user=self.provider_user,
-                                                is_provider=True,
-                                                account_status=AccountStatus.APPROVED.value)
+        self.consumer_userprofile = UserProfile.objects.create(user=self.consumer_user)
+        self.provider_userprofile = UserProfile.objects.create(user=self.provider_user)
+        self.consumer = Consumer.objects.create(userprofile=self.consumer_userprofile)
+        self.provider = Provider.objects.create(userprofile=self.provider_userprofile,
+                                                account_status=AccountStatus.APPROVED)
+
+    def authenticate_and_logout_with_assertions(self, login_data):
+        response = self.client.post(reverse('login'), login_data, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        access = response.cookies.get('access')
+        refresh = response.cookies.get('refresh')
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, HTTP_205_RESET_CONTENT)
+        self.assertFalse(OutstandingToken.objects.filter(token=access.value).exists())
+        self.assertTrue(BlacklistedToken.objects.filter(token__token=refresh.value).exists())
 
     def test_consumer_can_log_out(self):
-        # Authenticate the consumer first
-        response = self.client.post(reverse('login'), {"username": "consumer", "password": "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Logout
-        response = self.client.post(reverse('logout'))
-        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        self.authenticate_and_logout_with_assertions({"username": self.consumer_user.username, "password": "password"})
 
     def test_provider_can_log_out(self):
-        # Authenticate the provider
-        response = self.client.post(reverse('login'), {"username": "provider", "password": "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Logout
+        self.authenticate_and_logout_with_assertions({"username": self.provider_user.username, "password": "password"})
+
+    def test_logout_with_absence_of_access_tokens(self):
+        login_data = {"username": self.provider_user.username, "password": "password"}
+        self.client.post(reverse('login'), login_data, format='json')
+        access = self.client.cookies.pop('access', None)
+        self.assertIsNotNone(access)
         response = self.client.post(reverse('logout'))
-        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
 
 class UpdateAccountTestCases(APITestCase):

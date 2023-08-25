@@ -13,7 +13,7 @@ from sendgrid.helpers.mail import Mail
 from utils.validators import validate_image
 from .models import Provider, Consumer, AccountStatus
 from .permissions import IsAccountOwner
-from .serializers import UserProfileSerializer, CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer, \
+from .serializers import CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer, \
     MISSING_USER_DATA_ERROR
 
 
@@ -81,8 +81,9 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        if response.data['profile_pic']:
-            response.data['profile_pic'] = request.build_absolute_uri(response.data['profile_pic'])
+        if response.data['userprofile']['profile_pic']:
+            response.data['userprofile']['profile_pic'] = request.build_absolute_uri(
+                response.data['userprofile']['profile_pic'])
         response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
         response.set_cookie(key='access', value=response.data['access'], httponly=True)
         response.data.pop('refresh')
