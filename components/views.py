@@ -18,7 +18,8 @@ class AutoPartList(APIView):
 
     def get(self, request):
         provider = request.user.userprofile.provider
-        auto_parts = AutoPart.objects.filter(provider=provider)
+
+        auto_parts = AutoPart.objects.filter(component__provider=provider)
 
         # Apply Pagination
         paginator = CustomPageNumberPagination()

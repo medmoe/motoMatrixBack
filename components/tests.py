@@ -1,3 +1,4 @@
+import factory
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
@@ -6,44 +7,57 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.authentication import AUTHENTICATION_FAILED_MESSAGES
+from accounts.factories import ProviderFactory, ConsumerFactory
 from accounts.models import AccountStatus
 from accounts.models import Provider, Consumer
 from utils.helpers import create_file
-from .models import AutoPart, AutoPartCategories, AutoPartConditions
+from .factories import AutoPartFactory, ComponentFactory
+from .models import AutoPart, AutoPartCategories, AutoPartConditions, Component
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
 
 PASSWORD = 'PASSWORD'
 
 
+def initialize_users(providers_count=1, consumers_count=1):
+    return {'providers': ProviderFactory.create_batch(providers_count),
+            "consumers": ConsumerFactory.create_batch(consumers_count)}
+
+
+def initialize_auto_parts(provider, auto_parts_count=1):
+    # Create a list of components for the given provider
+    components = ComponentFactory.create_batch(auto_parts_count, provider=provider)
+
+    # Create auto parts using those components
+    auto_parts = AutoPartFactory.create_batch(auto_parts_count, component=factory.Iterator(components))
+
+    return auto_parts
+
+
 class AutoPartListTestCases(APITestCase):
     def setUp(self):
         self.auto_part_data = {
-            'name': 'name',
-            'description': 'description',
-            'manufacturer': 'manufacturer',
-            'price': 99.99,
-            'stock': 55,
-            'weight': 25.25,
-            'dimensions': 'dimensions',
-            'location': 'location',
-            'category': AutoPartCategories.SUSPENSION.value,
+            'component': {
+                'name': 'name',
+                'description': 'description',
+                'manufacturer': 'manufacturer',
+                'price': 99.99,
+                'stock': 55,
+                'weight': 25.25,
+                'dimensions': 'dimensions',
+                'location': 'location',
+            },
+
+            'category': AutoPartCategories.SUSPENSION,
             'vehicle_make': 'vehicle_make',
             'vehicle_model': 'vehicle_model',
             'vehicle_year': 'vehicle_year',
-            'condition': AutoPartConditions.NEW.value,
+            'condition': AutoPartConditions.NEW,
             'oem_number': 'OEM_number',
             'upc_number': 'UPC_number'
         }
-        self.user = User.objects.create_user(username="username", password="password", email="test@test.com")
-        self.provider = Provider.objects.create(user=self.user,
-                                                is_provider=True,
-                                                account_status=AccountStatus.APPROVED.value)
-        self.other_user = User.objects.create_user(username="other_user", password="password", email="other@test.com")
-        self.other_provider = Provider.objects.create(user=self.other_user,
-                                                      is_provider=True,
-                                                      account_status=AccountStatus.APPROVED.value)
-        self.consumer_user = User.objects.create_user(username="consumer", password='password', email='user@test.com')
-        self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
+        users = initialize_users(2, 1)
+        self.provider, self.other_provider = users['providers']
+        self.consumer, = users['consumers']
 
     def get_field_value(self, field, db_auto_part):
         field_name = field.name
@@ -62,33 +76,69 @@ class AutoPartListTestCases(APITestCase):
             return value
 
     def compare_api_and_db_fields(self, response_auto_parts):
-        db_auto_parts = AutoPart.objects.filter(provider=self.provider).order_by('name')
-        response_auto_parts = sorted(response_auto_parts, key=lambda x: x['name'])
+        db_auto_parts = AutoPart.objects.filter(component__provider=self.provider).order_by('id')
+        response_auto_parts = sorted(response_auto_parts, key=lambda x: x['id'])
         self.assertEqual(len(db_auto_parts), len(response_auto_parts))
 
         failed_assertions = []
-        for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
-            for field in db_auto_part._meta.fields:
-                if field.name in response_auto_part:
-                    db_field_value = self.get_field_value(field, db_auto_part)
-                    if db_field_value != response_auto_part[field.name]:
-                        failed_assertions.append(field.name)
-                else:
-                    failed_assertions.append(f"{field.name} (missing in response")
-        self.assertEqual(len(failed_assertions), 0, f"Fields with mismatches{', '.join(failed_assertions)}")
 
-    def test_unauthenticated_provider_cannot_create_auto_part(self):
+        for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
+            discrepancies = self.compare_fields(db_auto_part, response_auto_part)
+            failed_assertions.extend(discrepancies)
+
+        self.assertEqual(len(failed_assertions), 0, f"Fields with mismatches: {', '.join(failed_assertions)}")
+
+    def compare_fields(self, db_instance, response_data, prefix=''):
+        discrepancies = []
+
+        if not isinstance(response_data, dict):
+            discrepancies.append(f"{prefix}(Expected a dictionary but got {type(response_data)})")
+            return discrepancies
+
+        for field in db_instance._meta.fields:
+            field_name = field.name
+            db_value = getattr(db_instance, field_name)
+
+            # Check if the field is a ForeignKey (might return as ID in the response)
+            if isinstance(field, models.ForeignKey):
+                db_value = db_value.id
+
+            if field_name in response_data:
+                # Handling nested relationships
+                if isinstance(db_value, models.Model):
+                    nested_discrepancies = self.compare_fields(db_value, response_data.get(field_name, {}),
+                                                               f"{prefix}{field_name}.")
+                    discrepancies.extend(nested_discrepancies)
+                else:
+                    if str(db_value) != str(response_data[field_name]):
+                        discrepancies.append(f"{prefix}{field_name}")
+            else:
+                discrepancies.append(f"{prefix}{field_name} (missing in response)")
+        return discrepancies
+
+    def authenticate_user(self, username):
+        response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_failed_auto_part_creation_with_unauthenticated_account(self):
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), 'Authentication credentials were not provided.')
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
-    def test_provider_can_create_auto_part(self):
-        # Logging in
-        response = self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('user', response.data)
+    def test_failed_auto_part_creation_with_invalid_data(self):
+        self.authenticate_user(self.provider.userprofile.user.username)
 
-        # Creating an auto part
+        # corrupt the data
+        self.auto_part_data['component']['price'] = "Invalid input"
+
+        # Attempt to create auto part
+        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(AutoPart.objects.count())
+        self.assertFalse(Component.objects.count())
+
+    def test_successful_auto_part_creation_with_provider_account(self):
+        self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(AutoPart.objects.count(), 1)
@@ -96,91 +146,80 @@ class AutoPartListTestCases(APITestCase):
         # Checking that the fields are updated correctly
         auto_part = AutoPart.objects.first()
         decimal_fields = ('price', 'weight')
-        for key, value in self.auto_part_data.items():
-            if key in decimal_fields:
-                self.assertEqual(float(getattr(auto_part, key)), value)
+        component_data = self.auto_part_data['component']
+        for attr, value in component_data.items():
+            if attr in decimal_fields:
+                self.assertEqual(float(getattr(auto_part.component, attr)), value)
             else:
-                self.assertEqual(getattr(auto_part, key), value)
+                self.assertEqual(getattr(auto_part.component, attr), value)
+
+        for attr, value in self.auto_part_data.items():
+            if attr == 'component':
+                continue
+            self.assertEqual(getattr(auto_part, attr), value)
 
         # Checking that the provider of the auto part is the logged-in used
-        self.assertEqual(auto_part.provider.user.username, self.provider.user.username)
+        username = auto_part.component.provider.userprofile.user.username
+        self.assertEqual(username, self.provider.userprofile.user.username)
 
-    def test_unauthenticated_provider_cannot_retrieve_auto_parts_list(self):
+    def test_failed_auto_parts_retrieval_with_unauthenticated_provider(self):
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), "Authentication credentials were not provided.")
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
-    def test_provider_cannot_retrieve_other_providers_auto_parts_list(self):
-        # Set up
-        AutoPart.objects.create(provider=self.other_provider, vehicle_make="BMW", vehicle_year="1990")
-        self.client.post(reverse('login'), {'username': 'username', 'password': 'password'}, format='json')
+    def test_failed_auto_parts_retrieval_of_non_owned_parts(self):
+        initialize_auto_parts(self.other_provider, 10)  # arbitrary number
+        self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse("auto-parts"))
         # Assertions
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.compare_api_and_db_fields(response.data['results'])
 
-    def test_provider_can_retrieve_auto_parts_list(self):
-        # Logging in
-        response = self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Create auto parts
-        response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AutoPart.objects.count(), 1)
-        _ = AutoPart.objects.create(provider=self.provider, vehicle_make="BMW", vehicle_year="1990")
+    def test_successful_auto_parts_retrieval_with_provider_account(self):
+        self.authenticate_user(self.provider.userprofile.user.username)
+        initialize_auto_parts(self.provider, 10)  # Arbitrary number
 
         # Retrieve auto parts
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['count'], AutoPart.objects.filter(provider=self.provider).count())
+        self.assertEqual(response.data['count'], AutoPart.objects.filter(component__provider=self.provider).count())
         self.compare_api_and_db_fields(response.data['results'])
 
-    def test_consumer_cannot_create_auto_part(self):
-        response = self.client.post(reverse('login'), {"username": 'consumer', 'password': "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    def test_failed_auto_parts_creation_with_consumer_account(self):
+        self.authenticate_user(self.consumer.userprofile.user.username)
+
         # Auto part creation attempt
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
-    def test_consumer_cannot_retrieve_auto_parts_list(self):
-        response = self.client.post(reverse('login'), {"username": 'consumer', 'password': "password"}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    def test_failed_auto_parts_retrieval_with_consumer_account(self):
+        self.authenticate_user(self.consumer.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
-    def test_pagination(self):
-        # Set Up
+    def test_pagination_returns_correct_page_size(self):
         page_size = 10
-        for i in range(page_size + 5):
-            AutoPart.objects.create(provider=self.provider, name=f'Part {i}')
-        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        initialize_auto_parts(self.provider, 50)  # Arbitrary number
+        self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for key in ('count', 'next', 'previous', 'results'):
             self.assertIn(key, response.data)
         self.assertEqual(len(response.data['results']), page_size)
 
-    def test_custom_pagination(self):
+    def test_pagination_respects_custom_page_size_query_param(self):
         # Set up
         page_size = 5
-        for i in range(30):
-            AutoPart.objects.create(provider=self.provider, name=f'Part {i}')
-
-        # Authenticate the user
-        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
-
-        # Get auto parts
+        initialize_auto_parts(self.provider, 50)  # Arbitrary number
+        self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
-
-        # Assertions
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 5)
 
     def test_image_links_are_correctly_set(self):
-        self.client.post(reverse('login'), {"username": "username", "password": "password"}, format='json')
+        self.authenticate_user(self.provider.userprofile.user.username)
         AutoPart.objects.create(provider=self.provider, image=create_file(), name="test")
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
