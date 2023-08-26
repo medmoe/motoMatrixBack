@@ -211,6 +211,7 @@ ELASTICSEARCH_DSL = {
 }
 
 # Logger configuration
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -227,8 +228,10 @@ LOGGING = {
     'handlers': {
         'file': {
             'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/debug.log'),
+            'class': 'utils.logs_handlers.CustomTimedRotatingFileHandler',  # Changed class here
+            'dir_log': os.path.join(BASE_DIR, 'logs'),  # Directory where logs should be stored
+            'when': 'midnight',
+            'interval': 1,
             'formatter': 'verbose'
         },
         'console': {

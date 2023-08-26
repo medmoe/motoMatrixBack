@@ -1,3 +1,4 @@
+import logging
 import factory
 from django.contrib.auth.models import User
 from django.db import models
@@ -15,7 +16,74 @@ from .factories import AutoPartFactory, ComponentFactory
 from .models import AutoPart, AutoPartCategories, AutoPartConditions, Component
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
 
-PASSWORD = 'PASSWORD'
+PASSWORD = 'password'
+
+
+class ComparisonHelper:
+
+    @staticmethod
+    def get_field_value(field, db_obj):
+        """Retrieve the field value from the database object with appropriate formatting."""
+
+        def foreign_key_handler(value):
+            return value.id
+
+        def image_field_handler(value):
+            return value.url if value and hasattr(value, 'url') else None
+
+        def decimal_field_handler(value):
+            return format(value, '.2f') if value else None
+
+        def datetime_field_handler(value):
+            if is_aware(value):
+                value = make_naive(value)
+            return value.isoformat() + "Z"
+
+        field_handlers = {
+            models.ForeignKey: foreign_key_handler,
+            models.ImageField: image_field_handler,
+            models.DecimalField: decimal_field_handler,
+            models.DateTimeField: datetime_field_handler
+        }
+
+        handler = field_handlers.get(type(field))
+        value = getattr(db_obj, field.name)
+        return handler(value) if handler else value
+
+    @staticmethod
+    def compare_api_and_db_fields(response_objects, self, class_name):
+        """Compare API and database fields for AutoPart model."""
+
+        class_objects = class_name.objects.filter(component__provider=self.provider).order_by('component__name')
+        response_objects = sorted(response_objects, key=lambda x: x['component']['name'])
+        self.assertEqual(len(class_objects), len(response_objects))
+        for db_auto_part, response_auto_part in zip(class_objects, response_objects):
+            ComparisonHelper.compare_fields(db_auto_part, response_auto_part, self)
+
+    @staticmethod
+    def compare_fields(db_obj, response_obj, self):
+        """Recursively compare fields between database object and response."""
+
+        for field in db_obj._meta.fields:
+            field_name = field.name
+
+            # If the attribute is a related model, handle recursively
+            db_attribute = getattr(db_obj, field_name)
+            if isinstance(db_attribute, models.Model):
+                response_field = response_obj.get(field_name)
+                if isinstance(response_field, dict):
+                    ComparisonHelper.compare_fields(db_attribute, response_field, self)
+                else:
+                    logging.info(f"Expected dictionary for {field_name} in response, but got {type(response_field)}")
+                continue
+
+            # Compare non-model fields
+            if isinstance(response_obj, dict) and field_name in response_obj:
+                field_value = ComparisonHelper.get_field_value(field, db_obj)
+                if isinstance(field, models.ImageField):
+                    self.assertIn(field_value, response_obj[field_name])
+                else:
+                    self.assertEqual(field_value, response_obj[field_name])
 
 
 def initialize_users(providers_count=1, consumers_count=1):
@@ -59,65 +127,8 @@ class AutoPartListTestCases(APITestCase):
         self.provider, self.other_provider = users['providers']
         self.consumer, = users['consumers']
 
-    def get_field_value(self, field, db_auto_part):
-        field_name = field.name
-        value = getattr(db_auto_part, field_name)
-        if isinstance(field, models.ForeignKey):
-            return value.id
-        elif isinstance(field, models.ImageField):
-            return value.url if value and hasattr(value, 'url') else None
-        elif isinstance(field, models.DecimalField):
-            return str(float(value)) if value is not None else None
-        elif isinstance(field, models.DateTimeField):
-            if is_aware(value):
-                value = make_naive(value)
-            return value.isoformat() + "Z"
-        else:
-            return value
-
-    def compare_api_and_db_fields(self, response_auto_parts):
-        db_auto_parts = AutoPart.objects.filter(component__provider=self.provider).order_by('id')
-        response_auto_parts = sorted(response_auto_parts, key=lambda x: x['id'])
-        self.assertEqual(len(db_auto_parts), len(response_auto_parts))
-
-        failed_assertions = []
-
-        for db_auto_part, response_auto_part in zip(db_auto_parts, response_auto_parts):
-            discrepancies = self.compare_fields(db_auto_part, response_auto_part)
-            failed_assertions.extend(discrepancies)
-
-        self.assertEqual(len(failed_assertions), 0, f"Fields with mismatches: {', '.join(failed_assertions)}")
-
-    def compare_fields(self, db_instance, response_data, prefix=''):
-        discrepancies = []
-
-        if not isinstance(response_data, dict):
-            discrepancies.append(f"{prefix}(Expected a dictionary but got {type(response_data)})")
-            return discrepancies
-
-        for field in db_instance._meta.fields:
-            field_name = field.name
-            db_value = getattr(db_instance, field_name)
-
-            # Check if the field is a ForeignKey (might return as ID in the response)
-            if isinstance(field, models.ForeignKey):
-                db_value = db_value.id
-
-            if field_name in response_data:
-                # Handling nested relationships
-                if isinstance(db_value, models.Model):
-                    nested_discrepancies = self.compare_fields(db_value, response_data.get(field_name, {}),
-                                                               f"{prefix}{field_name}.")
-                    discrepancies.extend(nested_discrepancies)
-                else:
-                    if str(db_value) != str(response_data[field_name]):
-                        discrepancies.append(f"{prefix}{field_name}")
-            else:
-                discrepancies.append(f"{prefix}{field_name} (missing in response)")
-        return discrepancies
-
     def authenticate_user(self, username):
-        response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_failed_auto_part_creation_with_unauthenticated_account(self):
@@ -173,7 +184,7 @@ class AutoPartListTestCases(APITestCase):
         response = self.client.get(reverse("auto-parts"))
         # Assertions
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.compare_api_and_db_fields(response.data['results'])
+        ComparisonHelper.compare_api_and_db_fields(response.data['results'], self, AutoPart)
 
     def test_successful_auto_parts_retrieval_with_provider_account(self):
         self.authenticate_user(self.provider.userprofile.user.username)
@@ -183,7 +194,7 @@ class AutoPartListTestCases(APITestCase):
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], AutoPart.objects.filter(component__provider=self.provider).count())
-        self.compare_api_and_db_fields(response.data['results'])
+        ComparisonHelper.compare_api_and_db_fields(response.data['results'], self, AutoPart)
 
     def test_failed_auto_parts_creation_with_consumer_account(self):
         self.authenticate_user(self.consumer.userprofile.user.username)
@@ -220,11 +231,12 @@ class AutoPartListTestCases(APITestCase):
 
     def test_image_links_are_correctly_set(self):
         self.authenticate_user(self.provider.userprofile.user.username)
-        AutoPart.objects.create(provider=self.provider, image=create_file(), name="test")
+        initialize_auto_parts(self.provider)
         response = self.client.get(reverse('auto-parts'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('image', response.data['results'][0])
-        self.assertTrue(response.data['results'][0]['image'].startswith('http'))
+        response_auto_parts = response.data.pop('results')
+        self.assertIn('image', response_auto_parts[0]['component'])
+        self.assertTrue(response_auto_parts[0]['component']['image'].startswith('http'))
 
 
 class AutoPartDetailTestCases(APITestCase):
