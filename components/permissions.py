@@ -28,4 +28,4 @@ class IsAutoPartOwner(BasePermission):
     message = "Only owner can access this endpoint"
 
     def has_object_permission(self, request, view, obj):
-        return obj.provider == request.user.userprofile.provider
+        return obj.component.provider == request.user.userprofile.provider

@@ -10,7 +10,7 @@ from utils.validators import validate_image
 from .models import AutoPart
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
-from .serializers import AutoPartSerializer
+from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR
 
 
 class AutoPartList(APIView):
@@ -42,7 +42,7 @@ class AutoPartDetail(APIView):
         try:
             return AutoPart.objects.get(id=pk)
         except AutoPart.DoesNotExist:
-            raise NotFound(detail="AutoPart not found")
+            raise NotFound(detail=AUTO_PART_NOT_FOUND_ERROR)
 
     def check_object_permissions(self, request, obj):
         for permission in self.get_permissions():

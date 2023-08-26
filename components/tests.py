@@ -1,10 +1,13 @@
 import logging
+
 import factory
 from django.contrib.auth.models import User
 from django.db import models
 from django.urls import reverse
 from django.utils.timezone import is_aware, make_naive
-from rest_framework import status
+from rest_framework import status as rf_status
+from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_201_CREATED, HTTP_204_NO_CONTENT, HTTP_401_UNAUTHORIZED, HTTP_202_ACCEPTED, \
+    HTTP_400_BAD_REQUEST
 from rest_framework.test import APITestCase
 
 from accounts.authentication import AUTHENTICATION_FAILED_MESSAGES
@@ -51,10 +54,10 @@ class ComparisonHelper:
         return handler(value) if handler else value
 
     @staticmethod
-    def compare_api_and_db_fields(response_objects, self, class_name):
+    def compare_api_and_db_fields(response_objects, self, model_class):
         """Compare API and database fields for AutoPart model."""
 
-        class_objects = class_name.objects.filter(component__provider=self.provider).order_by('component__name')
+        class_objects = model_class.objects.filter(component__provider=self.provider).order_by('component__name')
         response_objects = sorted(response_objects, key=lambda x: x['component']['name'])
         self.assertEqual(len(class_objects), len(response_objects))
         for db_auto_part, response_auto_part in zip(class_objects, response_objects):
@@ -87,7 +90,7 @@ class ComparisonHelper:
 
 
 def initialize_users(providers_count=1, consumers_count=1):
-    return {'providers': ProviderFactory.create_batch(providers_count),
+    return {'providers': ProviderFactory.create_batch(providers_count, account_status=AccountStatus.APPROVED),
             "consumers": ConsumerFactory.create_batch(consumers_count)}
 
 
@@ -129,11 +132,11 @@ class AutoPartListTestCases(APITestCase):
 
     def authenticate_user(self, username):
         response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
 
     def test_failed_auto_part_creation_with_unauthenticated_account(self):
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
         self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
     def test_failed_auto_part_creation_with_invalid_data(self):
@@ -144,14 +147,14 @@ class AutoPartListTestCases(APITestCase):
 
         # Attempt to create auto part
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
         self.assertFalse(AutoPart.objects.count())
         self.assertFalse(Component.objects.count())
 
     def test_successful_auto_part_creation_with_provider_account(self):
         self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, HTTP_201_CREATED)
         self.assertEqual(AutoPart.objects.count(), 1)
 
         # Checking that the fields are updated correctly
@@ -175,7 +178,7 @@ class AutoPartListTestCases(APITestCase):
 
     def test_failed_auto_parts_retrieval_with_unauthenticated_provider(self):
         response = self.client.get(reverse('auto-parts'))
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
         self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
     def test_failed_auto_parts_retrieval_of_non_owned_parts(self):
@@ -183,7 +186,7 @@ class AutoPartListTestCases(APITestCase):
         self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse("auto-parts"))
         # Assertions
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
         ComparisonHelper.compare_api_and_db_fields(response.data['results'], self, AutoPart)
 
     def test_successful_auto_parts_retrieval_with_provider_account(self):
@@ -192,7 +195,7 @@ class AutoPartListTestCases(APITestCase):
 
         # Retrieve auto parts
         response = self.client.get(reverse('auto-parts'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertEqual(response.data['count'], AutoPart.objects.filter(component__provider=self.provider).count())
         ComparisonHelper.compare_api_and_db_fields(response.data['results'], self, AutoPart)
 
@@ -201,13 +204,13 @@ class AutoPartListTestCases(APITestCase):
 
         # Auto part creation attempt
         response = self.client.post(reverse('auto-parts'), self.auto_part_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
     def test_failed_auto_parts_retrieval_with_consumer_account(self):
         self.authenticate_user(self.consumer.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
     def test_pagination_returns_correct_page_size(self):
@@ -215,7 +218,7 @@ class AutoPartListTestCases(APITestCase):
         initialize_auto_parts(self.provider, 50)  # Arbitrary number
         self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
         for key in ('count', 'next', 'previous', 'results'):
             self.assertIn(key, response.data)
         self.assertEqual(len(response.data['results']), page_size)
@@ -226,14 +229,14 @@ class AutoPartListTestCases(APITestCase):
         initialize_auto_parts(self.provider, 50)  # Arbitrary number
         self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse('auto-parts'), {'pageSize': page_size})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 5)
 
     def test_image_links_are_correctly_set(self):
         self.authenticate_user(self.provider.userprofile.user.username)
         initialize_auto_parts(self.provider)
         response = self.client.get(reverse('auto-parts'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, HTTP_200_OK)
         response_auto_parts = response.data.pop('results')
         self.assertIn('image', response_auto_parts[0]['component'])
         self.assertTrue(response_auto_parts[0]['component']['image'].startswith('http'))
@@ -241,127 +244,105 @@ class AutoPartListTestCases(APITestCase):
 
 class AutoPartDetailTestCases(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='user', password='password', email='test@test.com')
-        self.provider = Provider.objects.create(user=self.user,
-                                                is_provider=True,
-                                                account_status=AccountStatus.APPROVED.value)
-        self.auto_part = AutoPart.objects.create(provider=self.provider, vehicle_make="BMW", vehicle_year="1990")
+        users = initialize_users(2, 1)
+        provider, other_provider = users['providers']
+        consumer, = users['consumers']
+        self.provider_auto_parts = initialize_auto_parts(provider, 10)  # Arbitrary number
+        other_provider_auto_parts = initialize_auto_parts(other_provider, 10)  # Arbitrary number
+        self.provider_auto_part_id = self.provider_auto_parts[0].id
+        self.other_provider_auto_part_id = other_provider_auto_parts[0].id
+        self.provider_username = provider.userprofile.user.username
+        self.other_provider_username = provider.userprofile.user.username
+        self.consumer_username = consumer.userprofile.user.username
 
-        # Create another user
-        self.other_user = User.objects.create_user(username="other", password="password", email="test@test.com")
-        self.other_provider = Provider.objects.create(user=self.other_user,
-                                                      is_provider=True,
-                                                      account_status=AccountStatus.APPROVED.value)
-        self.other_auto_part = AutoPart.objects.create(provider=self.other_provider, vehicle_year="1880")
+    def authenticate_and_get_response(self, auto_part_id, method, data=None, username=None, password=PASSWORD):
+        self.authenticate(username, password)
+        response_method = getattr(self.client, method.lower(), None)
+        if response_method:
+            response = response_method(reverse('auto-part-detail', args=[auto_part_id]), data, format='json')
+        else:
+            raise ValueError(f"Unsupported method: {method}")
+        return response
 
-        # Create a consumer
-        self.consumer_user = User.objects.create_user(username="consumer",
-                                                      password='password',
-                                                      email='consumer@test.com')
-        self.consumer = Consumer.objects.create(user=self.consumer_user, is_provider=False)
-
-    def authenticate_user_and_make_api_request(self,
-                                               auto_part_id,
-                                               code,
-                                               data=None,
-                                               method="GET",
-                                               username='user',
-                                               password='password'):
+    def authenticate(self, username, password):
         response = self.client.post(reverse('login'), {'username': username, 'password': password}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        if method == 'GET':
-            response = self.client.get(reverse('auto-part-detail', args=[auto_part_id]))
-            self.assertEqual(response.status_code, code)
-            if code == status.HTTP_200_OK:
-                auto_part = AutoPart.objects.get(id=auto_part_id)
-                self.assertEqual(response.data['vehicle_make'], auto_part.vehicle_make)
-                self.assertEqual(response.data['vehicle_year'], auto_part.vehicle_year)
-                self.assertEqual(response.data['provider'], self.auto_part.provider.id)
-            elif code == status.HTTP_403_FORBIDDEN:
-                self.assertEqual(str(response.data['detail']), IsAutoPartOwner.message)
-        elif method == 'PUT':
-            response = self.client.put(reverse('auto-part-detail', args=[auto_part_id]), data, format='json')
-            self.assertEqual(response.status_code, code)
-            if code == status.HTTP_202_ACCEPTED:
-                auto_part = AutoPart.objects.get(id=auto_part_id)
-                for key, value in data.items():
-                    self.assertEqual(getattr(auto_part, key), value)
-            elif code == status.HTTP_403_FORBIDDEN:
-                self.assertEqual(str(response.data['detail']), IsAutoPartOwner.message)
+        self.assertEqual(response.status_code, rf_status.HTTP_200_OK)
 
-        elif method == 'DELETE':
-            response = self.client.delete(reverse('auto-part-detail', args=[auto_part_id]))
-            self.assertEqual(response.status_code, code)
-            if code == status.HTTP_204_NO_CONTENT:
-                auto_part_exists = AutoPart.objects.filter(pk=auto_part_id).exists()
-                self.assertFalse(auto_part_exists)
-            elif code == status.HTTP_403_FORBIDDEN:
-                self.assertEqual(str(response.data['detail']), IsAutoPartOwner.message)
+    def handle_response(self, response, code, db_obj=None):
+        self.assertEqual(response.status_code, code)
 
-    def test_unauthenticated_provider_cannot_get_auto_part(self):
-        response = self.client.get(reverse('auto-part-detail', args=[self.auto_part.id]))
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), "Authentication credentials were not provided.")
+        if code in (HTTP_202_ACCEPTED, HTTP_200_OK):
+            ComparisonHelper.compare_fields(db_obj, response.data, self)
+        elif code == HTTP_403_FORBIDDEN:
+            self.assertEqual(str(response.data['detail']), IsAutoPartOwner.message)
 
-    def test_provider_can_get_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.auto_part.id, status.HTTP_200_OK)
+    def test_failed_auto_part_retrieval_with_unauthenticated_provider(self):
+        response = self.client.get(reverse('auto-part-detail', args=[self.provider_auto_part_id]))
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
-    def test_provider_cannot_get_other_providers_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.other_auto_part.id, status.HTTP_403_FORBIDDEN)
+    def test_successful_auto_part_retrieval_with_provider_account(self):
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "GET", username=self.provider_username)
+        self.handle_response(response, HTTP_200_OK, AutoPart.objects.get(id=self.provider_auto_part_id))
 
-    def test_consumer_cannot_get_providers_auto_part(self):
-        response = self.client.post(reverse('login'), {'username': 'consumer', 'password': 'password'}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.get(reverse('auto-part-detail', args=[self.auto_part.id]))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    def test_failed_auto_part_retrieval_of_not_own_auto_part(self):
+        response = self.authenticate_and_get_response(self.other_provider_auto_part_id, "GET", username=self.provider_username)
+        self.handle_response(response, HTTP_403_FORBIDDEN)
+
+    def test_failed_auto_part_retrieval_with_consumer_account(self):
+        response = self.client.post(reverse('login'), {'username': self.consumer_username, 'password': PASSWORD}, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        response = self.client.get(reverse('auto-part-detail', args=[self.provider_auto_parts[0].id]))
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
-    def test_unauthenticated_provider_cannot_update_auto_part(self):
+    def test_failed_auto_part_update_with_unauthenticated_provider(self):
+        data, id = {'vehicle_make': 'Benz'}, self.provider_auto_parts[0].id
+        response = self.client.put(reverse('auto-part-detail', args=[id]), data, format='json')
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
+
+    def test_successful_auto_part_update_with_provider_account(self):
+        data = {'component': {'name': 'updated_name'}, 'vehicle_make': 'Benz'}
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", data=data, username=self.provider_username)
+        self.handle_response(response, HTTP_202_ACCEPTED, AutoPart.objects.get(id=self.provider_auto_part_id))
+
+    def test_failed_auto_part_update_of_not_own_auto_part(self):
         data = {'vehicle_make': 'Benz'}
-        response = self.client.put(reverse('auto-part-detail', args=[self.auto_part.id]), data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), "Authentication credentials were not provided.")
+        response = self.authenticate_and_get_response(self.other_provider_auto_part_id, "PUT", data=data, username=self.provider_username)
+        self.handle_response(response, HTTP_403_FORBIDDEN)
 
-    def test_provider_can_update_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.auto_part.id,
-                                                    status.HTTP_202_ACCEPTED,
-                                                    {'vehicle_make': 'Benz'},
-                                                    method="PUT")
+    def test_failed_auto_part_update_with_invalid_data(self):
+        data = {'vehicle_make': "make", 'component': {'price': "price"}}
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", data=data, username=self.provider_username)
+        self.handle_response(response, HTTP_400_BAD_REQUEST)
 
-    def test_provider_cannot_update_other_providers_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.other_auto_part.id,
-                                                    status.HTTP_403_FORBIDDEN,
-                                                    {'vehicle_make': 'Benz'},
-                                                    method="PUT")
-
-    def test_consumer_cannot_update_auto_part(self):
-        response = self.client.post(reverse('login'), {'username': 'consumer', 'password': 'password'}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    def test_failed_auto_part_update_with_consumer_account(self):
+        response = self.client.post(reverse('login'), {'username': self.consumer_username, 'password': PASSWORD}, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
         data = {'vehicle_make': 'Benz'}
-        response = self.client.put(reverse('auto-part-detail', args=[self.auto_part.id]), data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.put(reverse('auto-part-detail', args=[self.provider_auto_part_id]), data, format='json')
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
-    def test_unauthenticated_provider_cannot_delete_auto_part(self):
-        response = self.client.delete(reverse('auto-part-detail', args=[self.auto_part.id]))
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(str(response.data['detail']), 'Authentication credentials were not provided.')
+    def test_failed_auto_part_deletion_with_unauthenticated_account(self):
+        response = self.client.delete(reverse('auto-part-detail', args=[self.provider_auto_part_id]))
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
-    def test_provider_can_delete_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.auto_part.id,
-                                                    status.HTTP_204_NO_CONTENT,
-                                                    method="DELETE")
+    def test_successful_auto_part_deletion_with_provider_account(self):
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "DELETE", username=self.provider_username)
+        self.handle_response(response, HTTP_204_NO_CONTENT)
 
-    def test_provider_cannot_delete_other_providers_auto_part(self):
-        self.authenticate_user_and_make_api_request(self.other_auto_part.id,
-                                                    status.HTTP_403_FORBIDDEN,
-                                                    method="DELETE")
+    def test_failed_auto_part_deletion_of_not_own_auto_part(self):
+        response = self.authenticate_and_get_response(self.other_provider_auto_part_id, "DELETE", username=self.provider_username)
+        self.handle_response(response, HTTP_403_FORBIDDEN)
 
-    def test_consumer_cannot_delete_auto_part(self):
-        response = self.client.post(reverse('login'), {'username': 'consumer', 'password': 'password'}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.delete(reverse('auto-part-detail', args=[self.auto_part.id]))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    def test_failed_auto_part_deletion_with_consumer_account(self):
+        response = self.client.post(reverse('login'), {'username': self.consumer_username, 'password': PASSWORD}, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        response = self.client.delete(reverse('auto-part-detail', args=[self.provider_auto_part_id]))
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
 
