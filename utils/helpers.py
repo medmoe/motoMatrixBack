@@ -1,5 +1,5 @@
-import os
 import json
+import os
 import tempfile
 
 from PIL import Image
@@ -50,6 +50,3 @@ def create_file(suffix=".jpg"):
 def uploaded_file_directory_path(directory_name, instance, filename):
     """ Return a path in which the uploaded files go to """
     return os.path.join(directory_name, str(instance.user.id), filename)
-
-
-

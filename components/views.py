@@ -1,16 +1,17 @@
-from django.contrib.postgres.search import SearchVector, SearchQuery
+from django.contrib.postgres.search import TrigramSimilarity
+from django.db.models import F
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import Provider
+from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.validators import validate_image
-from .models import AutoPart
+from .models import AutoPart, Component
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
-from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR
+from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR, FILE_NOT_FOUND_ERROR
 
 
 class AutoPartList(APIView):
@@ -78,16 +79,17 @@ class ImageCreation(APIView):
 
         # check if the file has been sent with the request
         if 'file' not in request.FILES:
-            raise ValidationError(detail="No file provided")
+            raise ValidationError(detail=FILE_NOT_FOUND_ERROR)
 
         # get the file from the request
         file = request.FILES['file']
 
         if not validate_image(file):
-            raise ValidationError(detail="Uploaded file is not a valid image")
+            raise ValidationError(detail=IMAGE_UPLOAD_ERROR)
 
         # Create auto part object with the data we have so far
-        AutoPart.objects.create(image=file, provider=Provider.objects.get(user=request.user))
+        component = Component.objects.create(image=file, provider=request.user.userprofile.provider)
+        AutoPart.objects.create(component=component)
 
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)
 
@@ -98,12 +100,21 @@ class AutoPartSearchView(APIView):
     def get(self, request, *args, **kwargs):
         search_term = request.query_params.get('search', '')
 
-        # Define the search vector and query
-        vector = SearchVector('name', 'description', 'category', 'manufacturer', 'condition')
-        query = SearchQuery(search_term)
-
-        # Filter auto parts based on ownership and then apply the search criteria
-        auto_parts = AutoPart.objects.filter(provider__user=request.user).annotate(search=vector).filter(search=query)
+        # Utilize TrigramSimilarity for fuzzy searching
+        auto_parts = AutoPart.objects.annotate(
+            similarity_component_desc=TrigramSimilarity('component__description', search_term),
+            similarity_component_name=TrigramSimilarity('component__name', search_term),
+            similarity_component_manufacturer=TrigramSimilarity('component__manufacturer', search_term),
+            similarity_category=TrigramSimilarity('category', search_term),
+            similarity_condition=TrigramSimilarity('condition', search_term)
+        ).filter(
+            component__provider=request.user.userprofile.provider
+        ).annotate(
+            total_similarity=F('similarity_component_desc') + F('similarity_component_name') + F('similarity_component_manufacturer') + F(
+                'similarity_category') + F('similarity_condition')
+        ).filter(
+            total_similarity__gte=0.3  # This is a threshold, you can adjust based on your needs
+        ).order_by('-total_similarity')
 
         # Apply pagination
         paginator = CustomPageNumberPagination()

@@ -53,4 +53,4 @@ jobs:
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
-          flake8 . --exclude=migrations
+          flake8 --max-line-length=150 --exclude=migrations

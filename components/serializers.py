@@ -5,6 +5,7 @@ from .models import AutoPart, Component
 # Validation and Authentication error messages
 AUTO_PART_NOT_FOUND_ERROR = "AutoPart does not exist."
 COMPONENT_NOT_FOUND_ERROR = "Component does not exist."
+FILE_NOT_FOUND_ERROR = "File does not exist."
 
 
 class ComponentSerializer(serializers.ModelSerializer):
