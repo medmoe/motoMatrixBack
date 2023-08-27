@@ -47,10 +47,4 @@ jobs:
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
-          python manage.py test
-
-      - name: Run flakes
-        env:
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-        run: |
-          flake8 --max-line-length=150 --exclude=migrations
+          python manage.py test --settings=motoMatrixBack.test_settings

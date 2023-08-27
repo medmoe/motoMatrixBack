@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db.models import F
 from rest_framework import status, permissions
@@ -12,6 +14,8 @@ from .models import AutoPart, Component
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
 from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR, FILE_NOT_FOUND_ERROR
+
+logger = logging.getLogger(__name__)
 
 
 class AutoPartList(APIView):
@@ -115,7 +119,7 @@ class AutoPartSearchView(APIView):
         ).filter(
             total_similarity__gte=0.3  # This is a threshold, you can adjust based on your needs
         ).order_by('-total_similarity')
-
+        logger.info(f'User {request.user.username} searched for {search_term}.')
         # Apply pagination
         paginator = CustomPageNumberPagination()
         paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
