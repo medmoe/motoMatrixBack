@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    'phonenumber_field',
 
 ]
 
@@ -169,6 +170,14 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,  # Set the default page size here
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'user': '100/hour',
+        'anon': '20/hour',
+    }
 }
 
 # JWT configuration
@@ -210,6 +219,7 @@ ELASTICSEARCH_DSL = {
 }
 
 # Logger configuration
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -226,8 +236,10 @@ LOGGING = {
     'handlers': {
         'file': {
             'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/debug.log'),
+            'class': 'utils.logs_handlers.CustomTimedRotatingFileHandler',  # Changed class here
+            'dir_log': os.path.join(BASE_DIR, 'logs'),  # Directory where logs should be stored
+            'when': 'midnight',
+            'interval': 1,
             'formatter': 'verbose'
         },
         'console': {

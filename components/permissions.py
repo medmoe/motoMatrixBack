@@ -1,13 +1,12 @@
 from rest_framework.permissions import BasePermission
-from .models import Provider
-from accounts.models import AccountStatus
+from accounts.models import AccountStatus, Provider
 
 
 class IsProvider(BasePermission):
     message = "Only providers can access this endpoint"
 
     def has_permission(self, request, view):
-        return hasattr(request.user, 'userprofile') and request.user.userprofile.is_provider
+        return hasattr(request.user, 'userprofile') and hasattr(request.user.userprofile, 'provider')
 
 
 class IsProviderApproved(BasePermission):
@@ -21,11 +20,12 @@ class IsProviderApproved(BasePermission):
             return False
 
         # Check if the authenticated user is an approved provider
-        return Provider.objects.filter(user=request.user, account_status=AccountStatus.APPROVED.value).exists()
+        userprofile = request.user.userprofile
+        return Provider.objects.filter(userprofile=userprofile, account_status=AccountStatus.APPROVED).exists()
 
 
 class IsAutoPartOwner(BasePermission):
     message = "Only owner can access this endpoint"
 
     def has_object_permission(self, request, view, obj):
-        return obj.provider == request.user.userprofile.provider
+        return obj.component.provider == request.user.userprofile.provider

@@ -1,33 +1,27 @@
-from enum import Enum, unique
-
 from django.db import models
 
-from accounts.models import Provider
+
+class AutoPartConditions(models.TextChoices):
+    NEW = "NEW", "New"
+    USED = "USED", "Used"
+    REFURBISHED = "REFURBISHED", "Refurbished"
 
 
-@unique
-class AutoPartConditions(Enum):
-    NEW = "NEW"
-    USED = "USED"
-    REFURBISHED = "REFURBISHED"
-
-
-@unique
-class AutoPartCategories(Enum):
-    ENGINE = "ENGINE"
-    TRANSMISSION = "TRANSMISSION"
-    SUSPENSION = "SUSPENSION"
-    BRAKES = "BRAKES"
-    ELECTRICAL = "ELECTRICAL"
-    BODY = "BODY"
-    INTERIOR = "INTERIOR"
-    TIRES = "TIRES"
-    WHEELS = "WHEELS"
-    ACCESSORIES = "ACCESSORIES"
+class AutoPartCategories(models.TextChoices):
+    ENGINE = "ENGINE", "Engine"
+    TRANSMISSION = "TRANSMISSION", "Transmission"
+    SUSPENSION = "SUSPENSION", "Suspension"
+    BRAKES = "BRAKES", "Brakes",
+    ELECTRICAL = "ELECTRICAL", "Electrical"
+    BODY = "BODY", "Body"
+    INTERIOR = "INTERIOR", "Interior"
+    TIRES = "TIRES", "Tires"
+    WHEELS = "WHEELS", "Wheels"
+    ACCESSORIES = "ACCESSORIES", "Accessories"
 
 
 class Component(models.Model):
-    provider = models.ForeignKey(Provider, on_delete=models.CASCADE)
+    provider = models.ForeignKey('accounts.Provider', on_delete=models.CASCADE)
     name = models.CharField(max_length=100, blank=True)
     description = models.TextField(blank=True)
     manufacturer = models.CharField(max_length=100, blank=True)
@@ -38,22 +32,30 @@ class Component(models.Model):
     dimensions = models.CharField(max_length=100, blank=True)
     # the physical location of the component in the store or the warehouse
     location = models.CharField(max_length=100, blank=True)
-    created_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        abstract = True
         ordering = ['created_at']
 
+    def __str__(self):
+        return self.name
 
-class AutoPart(Component):
-    auto_part_condition = [(condition.value, condition.name) for condition in AutoPartConditions]
-    auto_part_category = [(category.value, category.name) for category in AutoPartCategories]
-    category = models.CharField(max_length=20, choices=auto_part_category, blank=True)
+
+class AutoPart(models.Model):
+    component = models.OneToOneField(Component, on_delete=models.CASCADE)
+    category = models.CharField(max_length=20, choices=AutoPartCategories.choices, blank=True)
     vehicle_make = models.CharField(max_length=100, blank=True)
     vehicle_model = models.CharField(max_length=100, blank=True)
     vehicle_year = models.CharField(max_length=100, blank=True)
-    condition = models.CharField(max_length=100, choices=auto_part_condition, blank=True)
+    condition = models.CharField(max_length=100, choices=AutoPartConditions.choices, blank=True)
 
     # Original Equipment Manufacturer number.This is a unique number that identifies the part.
     oem_number = models.CharField(max_length=100, blank=True)
     upc_number = models.CharField(max_length=100, blank=True)  # Universal Product Code number. if available
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        parts = [self.category, self.vehicle_make, self.vehicle_model, self.vehicle_year, self.condition]
+        return '->'.join(part for part in parts if part)

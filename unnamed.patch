@@ -1,0 +1,189 @@
+Index: accounts/models.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/accounts/models.py b/accounts/models.py
+--- a/accounts/models.py	(revision 97e5b42abf49d2bb0fc937ec9a50518434f63423)
++++ b/accounts/models.py	(revision dccfdee3f1e96af61aa1c96143b25d63ceb7f3bf)
+@@ -1,50 +1,90 @@
+ from django.contrib.auth.models import User
++from django.core.validators import MinValueValidator, MaxValueValidator
+ from django.db import models
++from phonenumber_field.modelfields import PhoneNumberField
+ 
+-from enum import Enum, unique
++from utils.helpers import uploaded_file_directory_path
++from components.models import AutoPart
+ 
+ 
+-@unique
+-class AccountStatus(Enum):
+-    APPROVED = 'APPROVED'
+-    PENDING = 'PENDING'
+-    REJECTED = 'REJECTED'
++class AccountStatus(models.TextChoices):
++    APPROVED = 'APPROVED', 'Approved'
++    PENDING = 'PENDING', 'Pending'
++    SUSPENDED = 'SUSPENDED', 'Suspended'
+ 
+ 
+-@unique
+-class ProviderTypes(Enum):
+-    STORE = 'STORE'
+-    INDIVIDUAL = 'INDIVIDUAL'
+-    JUNKYARD = 'JUNKYARD'
+-    WHOLESALER = 'WHOLESALER'
+-    MANUFACTURER = 'MANUFACTURER'
++class ProviderTypes(models.TextChoices):
++    STORE = 'STORE', 'Store'
++    INDIVIDUAL = 'INDIVIDUAL', 'Individual'
++    JUNKYARD = 'JUNKYARD', 'Junkyard'
++    WHOLESALER = 'WHOLESALER', 'Wholesaler'
++    MANUFACTURER = 'MANUFACTURER', 'Manufacturer'
+ 
+ 
+ class UserProfile(models.Model):
+-    # One-to-One relation with Django User
++    """ Defines the user profile in the system """
++
+     user = models.OneToOneField(User, on_delete=models.CASCADE)
+-    # Common fields
+-    profile_pic = models.ImageField(upload_to='', blank=True)
+-    is_provider = models.BooleanField(default=False)
+-    phone = models.CharField(max_length=20, blank=True)
++    profile_pic = models.ImageField(
++        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "profile_pic/"),
++        blank=True)
++    phone = PhoneNumberField(blank=True)
+     address = models.CharField(max_length=200, blank=True)
+     city = models.CharField(max_length=50, blank=True)
+     country = models.CharField(max_length=50, blank=True)
+-    rating = models.IntegerField(default=0)
+-
+-
+-class Consumer(UserProfile):
+-    # Additional fields if needed
+-    pass
+-
+-
+-class Provider(UserProfile):
+-    provider_types = [(provider_type.value, provider_type.name) for provider_type in ProviderTypes]
+-    accounts_statuses = [(status.value, status.name) for status in AccountStatus]
+-
+-    provider_type = models.CharField(max_length=20, choices=provider_types, blank=True)
+-    account_status = models.CharField(max_length=20, choices=accounts_statuses, default=AccountStatus.PENDING.value)
+-    description = models.TextField(blank=True)
++    zip_code = models.CharField(max_length=20, blank=True)
++    sign_up_date = models.DateTimeField(auto_now_add=True)
++    last_login_date = models.DateTimeField(auto_now=True)
++    is_verified = models.BooleanField(default=False)
+ 
+     def __str__(self):
+         return self.user.username
++
++
++class Provider(models.Model):
++    """ Defines the provider """
++
++    userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
++    store_name = models.CharField(max_length=50, blank=True)
++    store_description = models.TextField()
++    account_status = models.CharField(max_length=20, choices=AccountStatus.choices, null=True)
++    store_logo = models.ImageField(
++        upload_to=lambda instance, filename: uploaded_file_directory_path(instance, filename, "store_logo/")
++    )
++    cached_average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
++    number_of_sales = models.IntegerField(default=0)
++    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, blank=True, null=True)
++
++
++class Consumer(models.Model):
++    """ Defines the consumer """
++
++    userprofile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
++    wishlist = models.ForeignKey(AutoPart, on_delete=models.CASCADE)
++    cart = models.ForeignKey(AutoPart, on_delete=models.CASCADE)
++    favorite_providers = models.ForeignKey(Provider, on_delete=models.CASCADE)
++
++
++class Rating(models.Model):
++    """ Defines the rating given to the provider by consumers """
++
++    rated = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="ratings")
++    rater = models.ForeignKey(Consumer, on_delete=models.CASCADE)
++    stars = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
++    review_text = models.TextField(blank=True)
++    updated_at = models.DateTimeField(auto_now_add=True)
++    created_at = models.DateTimeField(auto_now_add=True)
++
++    def save(self, *args, **kwargs):
++        super().save(*args, **kwargs)
++        self.update_cached_average(save=True)
++
++    def delete(self, *args, **kwargs):
++        super().delete(*args, **kwargs)
++        self.update_cached_average(save=True)
++
++    def update_cached_average(self, save=False):
++        average = self.rated.ratings.aggregate(avg_rating=models.Avg('stars'))['avg_rating']
++        self.rated.cached_average_rating = average or 0
++        if save:
++            self.rated.save()
+Index: motoMatrixBack/settings.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/motoMatrixBack/settings.py b/motoMatrixBack/settings.py
+--- a/motoMatrixBack/settings.py	(revision 97e5b42abf49d2bb0fc937ec9a50518434f63423)
++++ b/motoMatrixBack/settings.py	(revision 4ffc54ce1cba9aa2eb4229a12f55b509734d0a43)
+@@ -51,6 +51,7 @@
+     'rest_framework',
+     'rest_framework.authtoken',
+     'corsheaders',
++    'phonenumber_field',
+ 
+ ]
+ 
+Index: utils/helpers.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/utils/helpers.py b/utils/helpers.py
+--- a/utils/helpers.py	(revision 97e5b42abf49d2bb0fc937ec9a50518434f63423)
++++ b/utils/helpers.py	(revision 4ffc54ce1cba9aa2eb4229a12f55b509734d0a43)
+@@ -1,3 +1,4 @@
++import os
+ import json
+ import tempfile
+ 
+@@ -44,3 +45,9 @@
+         raise ValueError(f'Unsupported file type:{suffix}')
+ 
+     return uploaded_file
++
++
++def uploaded_file_directory_path(instance, filename, directory_name):
++    """ Return a path in which the uploaded files go to """
++
++    return os.path.join(directory_name, str(instance.user.id), filename)
+Index: components/models.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/components/models.py b/components/models.py
+--- a/components/models.py	(revision 4ffc54ce1cba9aa2eb4229a12f55b509734d0a43)
++++ b/components/models.py	(revision dccfdee3f1e96af61aa1c96143b25d63ceb7f3bf)
+@@ -45,7 +45,8 @@
+         ordering = ['created_at']
+ 
+ 
+-class AutoPart(Component):
++class AutoPart(models.Model):
++    component = models.OneToOneField(Component, on_delete=models.CASCADE)
+     auto_part_condition = [(condition.value, condition.name) for condition in AutoPartConditions]
+     auto_part_category = [(category.value, category.name) for category in AutoPartCategories]
+     category = models.CharField(max_length=20, choices=auto_part_category, blank=True)
