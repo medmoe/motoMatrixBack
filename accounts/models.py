@@ -11,6 +11,11 @@ PROFILE_PIC_DIR = 'profile_pic/'
 STORE_LOGO_DIR = 'store_logo/'
 
 
+class ProfileTypes(models.TextChoices):
+    PROVIDER = "PROVIDER", 'Provider'
+    CONSUMER = "CONSUMER", "Consumer"
+
+
 class AccountStatus(models.TextChoices):
     APPROVED = 'APPROVED', 'Approved'
     PENDING = 'PENDING', 'Pending'
@@ -29,6 +34,7 @@ class UserProfile(models.Model):
     """ Defines the user profile in the system """
 
     user = models.OneToOneField(User, on_delete=models.CASCADE)
+    profile_type = models.CharField(max_length=20, choices=ProviderTypes.choices, default=ProfileTypes.PROVIDER)
     profile_pic = models.ImageField(upload_to=partial(uploaded_file_directory_path, PROFILE_PIC_DIR), blank=True)
     phone = PhoneNumberField(blank=True)
     address = models.CharField(max_length=200, blank=True)
