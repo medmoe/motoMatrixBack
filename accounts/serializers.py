@@ -16,6 +16,7 @@ EMAIL_ALREADY_IN_USE_ERROR = "Email address is already in use."
 INVALID_EMAIL_ERROR = "Enter a valid email address."
 ACCOUNT_NOT_FOUND_ERROR = "Account does not exist."
 IMAGE_UPLOAD_ERROR = "Uploaded file is not a valid image."
+UNKNOWN_PROFILE_TYPE = "The profile type provided does not exist."
 
 
 # Helper functions

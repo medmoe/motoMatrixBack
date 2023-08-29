@@ -11,10 +11,10 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from utils.validators import validate_image
-from .models import Provider, Consumer, AccountStatus
+from .models import Provider, Consumer, AccountStatus, ProfileTypes
 from .permissions import IsAccountOwner
 from .serializers import CustomTokenObtainPairSerializer, ProviderSerializer, ConsumerSerializer, \
-    MISSING_USER_DATA_ERROR, ACCOUNT_STATUS_ERROR, ACCOUNT_NOT_FOUND_ERROR, IMAGE_UPLOAD_ERROR
+    MISSING_USER_DATA_ERROR, ACCOUNT_STATUS_ERROR, ACCOUNT_NOT_FOUND_ERROR, IMAGE_UPLOAD_ERROR, UNKNOWN_PROFILE_TYPE
 
 
 class SignupView(APIView):
@@ -22,14 +22,17 @@ class SignupView(APIView):
     permission_classes = [permissions.AllowAny, ]
 
     def post(self, request):
-        is_provider = request.data.pop('is_provider', None)
-        if is_provider is None:
+        if 'userprofile' not in request.data or 'profile_type' not in request.data['userprofile']:
             raise ValidationError(detail=MISSING_USER_DATA_ERROR)
 
-        if is_provider:
+        profile_type = request.data['userprofile']['profile_type']
+        if profile_type == ProfileTypes.PROVIDER:
             serializer = ProviderSerializer(data=request.data, context={'request': request})
-        else:
+        elif profile_type == ProfileTypes.CONSUMER:
             serializer = ConsumerSerializer(data=request.data, context={'request': request})
+        else:
+            raise ValidationError(detail=UNKNOWN_PROFILE_TYPE)
+
         if serializer.is_valid():
             account = serializer.save()
             refresh = RefreshToken.for_user(account.userprofile.user)

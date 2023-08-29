@@ -34,7 +34,7 @@ class UserProfile(models.Model):
     """ Defines the user profile in the system """
 
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    profile_type = models.CharField(max_length=20, choices=ProviderTypes.choices, default=ProfileTypes.PROVIDER)
+    profile_type = models.CharField(max_length=20, choices=ProfileTypes.choices, default=ProfileTypes.PROVIDER)
     profile_pic = models.ImageField(upload_to=partial(uploaded_file_directory_path, PROFILE_PIC_DIR), blank=True)
     phone = PhoneNumberField(blank=True)
     address = models.CharField(max_length=200, blank=True)

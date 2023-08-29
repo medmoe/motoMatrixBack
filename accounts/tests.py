@@ -21,7 +21,7 @@ from sendgrid.helpers.mail import Mail
 from accounts.authentication import AUTHENTICATION_FAILED_MESSAGES
 from utils.helpers import create_file
 from .factories import ProviderFactory, ConsumerFactory
-from .models import Provider, Consumer, AccountStatus, UserProfile, PROFILE_PIC_DIR
+from .models import Provider, Consumer, AccountStatus, UserProfile, PROFILE_PIC_DIR, ProfileTypes
 from .permissions import IsAccountOwner
 from .serializers import ACCOUNT_STATUS_ERROR, AUTHENTICATION_ERROR, EMAIL_ALREADY_IN_USE_ERROR, \
     USERNAME_ALREADY_IN_USE_ERROR, ACCOUNT_NOT_FOUND_ERROR, IMAGE_UPLOAD_ERROR
@@ -35,8 +35,8 @@ def initialize_users(providers_count=1, consumers_count=1):
 class SignUpTestCases(APITransactionTestCase):
     def setUp(self):
         self.data = {
-            'is_provider': True,
             'userprofile': {
+                'profile_type': ProfileTypes.PROVIDER,
                 'user': {
                     "username": "newusername",
                     "password": 'newpassword',
@@ -59,10 +59,17 @@ class SignUpTestCases(APITransactionTestCase):
         response = self.client.post(reverse('signup'), self.data, format='json')
         self.assertEqual(response.status_code, HTTP_201_CREATED)
         self.assertNotEqual(User.objects.count(), self.initial_user_count)
+
+        # Assert user information is correct
         created_user = User.objects.get(id=response.data['userprofile']['user']['id'])
         self.assertEqual(created_user.username, self.data['userprofile']['user']['username'])
         self.assertEqual(created_user.email, self.data['userprofile']['user']['email'])
         self.assertNotEqual(created_user.password, self.data['userprofile']['user']['password'])
+
+        # Assert type of profile is a provider
+        provider = Provider.objects.all().first()
+        self.assertTrue(provider)
+        self.assertEqual(provider.userprofile.profile_type, ProfileTypes.PROVIDER)
 
     def test_registration_fails_without_username(self):
         self.data['userprofile']['user'].pop("username")
@@ -102,10 +109,14 @@ class SignUpTestCases(APITransactionTestCase):
         self.assertEqual(str(response.data['detail']), ACCOUNT_STATUS_ERROR)
 
     def test_consumer_registration_is_successful(self):
-        self.data['is_provider'] = False
+        self.data['userprofile']['profile_type'] = ProfileTypes.CONSUMER
         response = self.client.post(reverse('signup'), self.data, format='json')
         self.assertEqual(response.status_code, HTTP_201_CREATED)
-        self.assertNotEqual(User.objects.count(), self.initial_user_count)
+        consumer = Consumer.objects.all().first()
+        self.assertTrue(consumer)
+        self.assertEqual(consumer.userprofile.profile_type, ProfileTypes.CONSUMER)
+        self.assertEqual(consumer.userprofile.user.username, self.data['userprofile']['user']['username'])
+        self.assertEqual(consumer.userprofile.user.email, self.data['userprofile']['user']['email'])
 
 
 class LoginTestCases(APITestCase):
