@@ -3,7 +3,6 @@ from functools import partial
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from phonenumber_field.modelfields import PhoneNumberField
 
 from utils.helpers import uploaded_file_directory_path
 
@@ -36,7 +35,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     profile_type = models.CharField(max_length=20, choices=ProfileTypes.choices, default=ProfileTypes.PROVIDER)
     profile_pic = models.ImageField(upload_to=partial(uploaded_file_directory_path, PROFILE_PIC_DIR), blank=True)
-    phone = PhoneNumberField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
     address = models.CharField(max_length=100, blank=True)
     city = models.CharField(max_length=20, blank=True)
     state = models.CharField(max_length=20, blank=True)
