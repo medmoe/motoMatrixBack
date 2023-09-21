@@ -54,8 +54,8 @@ class SignupView(APIView):
 
                 # Only set authentication cookies if user is not a provider
                 if not isinstance(account, Provider):
-                    response.set_cookie(key='refresh', value=str(refresh), httponly=True)
-                    response.set_cookie(key='access', value=str(refresh.access_token), httponly=True)
+                    response.set_cookie(key='refresh', value=str(refresh), httponly=True, samesite='Lax')
+                    response.set_cookie(key='access', value=str(refresh.access_token), httponly=True, samesite='Lax')
 
                 return response
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -87,8 +87,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         if response.data['userprofile']['profile_pic']:
             response.data['userprofile']['profile_pic'] = request.build_absolute_uri(
                 response.data['userprofile']['profile_pic'])
-        response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True)
-        response.set_cookie(key='access', value=response.data['access'], httponly=True)
+        response.set_cookie(key='refresh', value=response.data['refresh'], httponly=True, samesite='Lax')
+        response.set_cookie(key='access', value=response.data['access'], httponly=True, samesite='Lax')
         response.data.pop('refresh')
         response.data.pop('access')
         return response
@@ -105,7 +105,7 @@ class CustomTokenRefreshView(TokenRefreshView):
         try:
             serializer.is_valid(raise_exception=True)
             response = Response(serializer.validated_data, status=status.HTTP_200_OK)
-            response.set_cookie(key='access', value=response.data['access'], httponly=True)
+            response.set_cookie(key='access', value=response.data['access'], httponly=True, samesite='Lax')
             return response
         except TokenError as e:
             return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
