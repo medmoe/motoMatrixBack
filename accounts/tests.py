@@ -28,8 +28,15 @@ from .serializers import ACCOUNT_STATUS_ERROR, AUTHENTICATION_ERROR, EMAIL_ALREA
 
 
 def initialize_users(providers_count=1, consumers_count=1):
-    return {'providers': ProviderFactory.create_batch(providers_count),
-            "consumers": ConsumerFactory.create_batch(consumers_count)}
+    users = {'providers': ProviderFactory.create_batch(providers_count), "consumers": ConsumerFactory.create_batch(consumers_count)}
+    # verify the type of the users is correct
+    for provider in users['providers']:
+        assert provider.userprofile.profile_type == ProfileTypes.PROVIDER, f"Profile type for provider user should be {ProfileTypes.PROVIDER}"
+
+    for consumer in users['consumers']:
+        assert consumer.userprofile.profile_type == ProfileTypes.CONSUMER, f"Profile type for consumer user should be {ProfileTypes.CONSUMER}"
+
+    return users
 
 
 class SignUpTestCases(APITransactionTestCase):
@@ -155,6 +162,23 @@ class LoginTestCases(APITestCase):
         self.assertEqual(response.data['userprofile']['user']['email'], self.consumer.userprofile.user.email)
         for key in ('refresh', 'access'):
             self.assertIn(key, response.cookies)
+
+    def test_consumer_data_integrity_on_successful_login(self):
+        # Let's add a profile picture to the provider
+        provider_username = self.provider.userprofile.user.username
+        provider_login_data = {"username": provider_username, "password": "password"}
+        provider_login_response = self.client.post(reverse('login'), provider_login_data)
+        self.assertEqual(provider_login_response.status_code, HTTP_200_OK)
+        data = {'profile_pic': create_file()}
+        response = self.client.put(reverse('file_upload', args=[provider_username]), data, format='multipart')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.provider.refresh_from_db()
+
+        # Now let's log the consumer in and make sure that the profile picture of the provider is not included in the response data
+        consumer_login_data = {"username": self.consumer.userprofile.user.username, "password": "password"}
+        consumer_login_response = self.client.post(reverse('login'), consumer_login_data)
+        self.assertEqual(consumer_login_response.status_code, HTTP_200_OK)
+        self.assertIsNone(consumer_login_response.data['userprofile']['profile_pic'])
 
     def test_user_cannot_login_with_wrong_credentials(self):
         response = self.client.post(reverse('login'),

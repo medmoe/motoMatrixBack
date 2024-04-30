@@ -1,8 +1,8 @@
 from django.contrib.auth.models import User
-from factory import Faker, SubFactory
+from factory import Faker, SubFactory, LazyAttribute
 from factory.django import DjangoModelFactory
 
-from .models import UserProfile, Provider, Consumer, AccountStatus
+from .models import UserProfile, Provider, Consumer, AccountStatus, ProfileTypes
 
 
 class UserFactory(DjangoModelFactory):
@@ -27,13 +27,14 @@ class UserProfileFactory(DjangoModelFactory):
         model = UserProfile
 
     user = SubFactory(UserFactory)
+    profile_type = LazyAttribute(lambda obj: obj.profile_type)
 
 
 class ProviderFactory(DjangoModelFactory):
     class Meta:
         model = Provider
 
-    userprofile = SubFactory(UserProfileFactory)
+    userprofile = SubFactory(UserProfileFactory, profile_type=ProfileTypes.PROVIDER)
     account_status = AccountStatus.APPROVED
 
 
@@ -41,4 +42,4 @@ class ConsumerFactory(DjangoModelFactory):
     class Meta:
         model = Consumer
 
-    userprofile = SubFactory(UserProfileFactory)
+    userprofile = SubFactory(UserProfileFactory, profile_type=ProfileTypes.CONSUMER)
