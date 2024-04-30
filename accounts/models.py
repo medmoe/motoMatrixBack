@@ -56,10 +56,13 @@ class Provider(models.Model):
     store_name = models.CharField(max_length=50, blank=True)
     store_description = models.TextField(blank=True)
     account_status = models.CharField(max_length=20, choices=AccountStatus.choices, default=AccountStatus.PENDING)
-    store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), blank=True)
+    store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), blank=True, null=True)
     cached_average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
     number_of_sales = models.IntegerField(default=0)
-    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, blank=True)
+    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, blank=True, null=True)
+
+    def __str__(self):
+        return self.userprofile.user.username
 
 
 class Consumer(models.Model):
@@ -69,6 +72,9 @@ class Consumer(models.Model):
     wishlist = models.ManyToManyField('components.AutoPart', related_name="wishlist")
     cart = models.ManyToManyField('components.AutoPart', related_name="cart")
     favorite_providers = models.ManyToManyField(Provider, related_name="favorite_providers")
+
+    def __str__(self):
+        return self.userprofile.user.username
 
 
 class Rating(models.Model):
