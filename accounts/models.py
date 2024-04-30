@@ -56,10 +56,10 @@ class Provider(models.Model):
     store_name = models.CharField(max_length=50, blank=True)
     store_description = models.TextField(blank=True)
     account_status = models.CharField(max_length=20, choices=AccountStatus.choices, default=AccountStatus.PENDING)
-    store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), null=True)
+    store_logo = models.ImageField(upload_to=partial(uploaded_file_directory_path, STORE_LOGO_DIR), blank=True)
     cached_average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
     number_of_sales = models.IntegerField(default=0)
-    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, null=True)
+    provider_type = models.CharField(max_length=20, choices=ProviderTypes.choices, blank=True)
 
 
 class Consumer(models.Model):
