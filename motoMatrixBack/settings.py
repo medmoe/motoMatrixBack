@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'phonenumber_field',
+    'django_nose',
 
 ]
 
@@ -219,7 +220,6 @@ ELASTICSEARCH_DSL = {
 }
 
 # Logger configuration
-
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -254,3 +254,6 @@ LOGGING = {
         },
     },
 }
+
+# Test runner
+TEST_RUNNER = 'django_nose.NoseTestSuiteRunner'

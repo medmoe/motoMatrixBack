@@ -1,5 +1,6 @@
 import factory
 from factory.django import DjangoModelFactory
+
 from .models import Component, AutoPart, AutoPartConditions, AutoPartCategories
 
 
