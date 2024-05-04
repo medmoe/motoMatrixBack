@@ -67,7 +67,7 @@ class Component(models.Model):
 
 class AutoPart(models.Model):
     component = models.OneToOneField(Component, on_delete=models.CASCADE)
-    category = models.CharField(max_length=20, choices=AutoPartCategories.choices, blank=True)
+    category = models.CharField(max_length=100, choices=AutoPartCategories.choices, blank=True)
     vehicle_make = models.CharField(max_length=100, blank=True)
     vehicle_model = models.CharField(max_length=100, blank=True)
     vehicle_year = models.CharField(max_length=100, blank=True)
