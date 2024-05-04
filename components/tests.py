@@ -117,7 +117,7 @@ class AutoPartListTestCases(APITestCase):
                 'location': 'location',
             },
 
-            'category': AutoPartCategories.SUSPENSION,
+            'category': AutoPartCategories.BRAKES,
             'vehicle_make': 'vehicle_make',
             'vehicle_model': 'vehicle_model',
             'vehicle_year': 'vehicle_year',
