@@ -413,3 +413,37 @@ class EmailTest(TestCase):
         email = args[0]
         self.assertEqual(email._from_email.email, 'partsplaza23@gmail.com')
         self.assertIn("Account verification", str(email))
+
+
+class CustomTokenRefreshViewTestCases(APITestCase):
+    def setUp(self):
+        users = initialize_users()
+        self.user = users['consumers'][0]
+
+    def test_refresh_token_valid(self):
+        """ Test the token refresh with a valid refresh token """
+
+        username = self.user.userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        response = self.client.post(reverse('refresh'))
+        self.assertIn('access', response.cookies)
+        self.assertTrue(response.cookies['access'].value)
+        self.assertNotEqual(login_response.cookies['access'].value, response.cookies['access'].value)
+
+    def test_refresh_token_invalid(self):
+        """ Test the token refresh with an invalid refresh token """
+
+        username = self.user.userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        self.client.cookies['refresh'] = "invalidToken"
+        response = self.client.post(reverse("refresh"))
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn('detail', response.data)
+
+    def test_no_refresh_token(self):
+        """ Test the refresh endpoint without providing a refresh token """
+        response = self.client.post(reverse("refresh"))
+        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
+
