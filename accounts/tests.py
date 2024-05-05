@@ -447,3 +447,21 @@ class CustomTokenRefreshViewTestCases(APITestCase):
         response = self.client.post(reverse("refresh"))
         self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
 
+
+class CheckAuthViewTestCases(APITestCase):
+    def setUp(self):
+        users = initialize_users()
+        self.consumer, self.provider = users['consumers'][0], users['providers'][0]
+
+    def test_failed_authentication(self):
+        response = self.client.get(reverse("check-auth"))
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+
+    def test_successful_authentication(self):
+        username = self.consumer.userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        response = self.client.get(reverse("check-auth"))
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.assertIn("user_type", response.data)
+        self.assertEqual(response.data['user_type'], ProfileTypes.CONSUMER.lower())
