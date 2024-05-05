@@ -52,8 +52,6 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'phonenumber_field',
-    'django_nose',
-
 ]
 
 MIDDLEWARE = [
@@ -254,6 +252,3 @@ LOGGING = {
         },
     },
 }
-
-# Test runner
-TEST_RUNNER = 'django_nose.NoseTestSuiteRunner'
