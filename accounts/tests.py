@@ -28,8 +28,15 @@ from .serializers import ACCOUNT_STATUS_ERROR, AUTHENTICATION_ERROR, EMAIL_ALREA
 
 
 def initialize_users(providers_count=1, consumers_count=1):
-    return {'providers': ProviderFactory.create_batch(providers_count),
-            "consumers": ConsumerFactory.create_batch(consumers_count)}
+    users = {'providers': ProviderFactory.create_batch(providers_count), "consumers": ConsumerFactory.create_batch(consumers_count)}
+    # verify the type of the users is correct
+    for provider in users['providers']:
+        assert provider.userprofile.profile_type == ProfileTypes.PROVIDER, f"Profile type for provider user should be {ProfileTypes.PROVIDER}"
+
+    for consumer in users['consumers']:
+        assert consumer.userprofile.profile_type == ProfileTypes.CONSUMER, f"Profile type for consumer user should be {ProfileTypes.CONSUMER}"
+
+    return users
 
 
 class SignUpTestCases(APITransactionTestCase):
@@ -155,6 +162,23 @@ class LoginTestCases(APITestCase):
         self.assertEqual(response.data['userprofile']['user']['email'], self.consumer.userprofile.user.email)
         for key in ('refresh', 'access'):
             self.assertIn(key, response.cookies)
+
+    def test_consumer_data_integrity_on_successful_login(self):
+        # Let's add a profile picture to the provider
+        provider_username = self.provider.userprofile.user.username
+        provider_login_data = {"username": provider_username, "password": "password"}
+        provider_login_response = self.client.post(reverse('login'), provider_login_data)
+        self.assertEqual(provider_login_response.status_code, HTTP_200_OK)
+        data = {'profile_pic': create_file()}
+        response = self.client.put(reverse('file_upload', args=[provider_username]), data, format='multipart')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.provider.refresh_from_db()
+
+        # Now let's log the consumer in and make sure that the profile picture of the provider is not included in the response data
+        consumer_login_data = {"username": self.consumer.userprofile.user.username, "password": "password"}
+        consumer_login_response = self.client.post(reverse('login'), consumer_login_data)
+        self.assertEqual(consumer_login_response.status_code, HTTP_200_OK)
+        self.assertIsNone(consumer_login_response.data['userprofile']['profile_pic'])
 
     def test_user_cannot_login_with_wrong_credentials(self):
         response = self.client.post(reverse('login'),
@@ -389,3 +413,37 @@ class EmailTest(TestCase):
         email = args[0]
         self.assertEqual(email._from_email.email, 'partsplaza23@gmail.com')
         self.assertIn("Account verification", str(email))
+
+
+class CustomTokenRefreshViewTestCases(APITestCase):
+    def setUp(self):
+        users = initialize_users()
+        self.user = users['consumers'][0]
+
+    def test_refresh_token_valid(self):
+        """ Test the token refresh with a valid refresh token """
+
+        username = self.user.userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        response = self.client.post(reverse('refresh'))
+        self.assertIn('access', response.cookies)
+        self.assertTrue(response.cookies['access'].value)
+        self.assertNotEqual(login_response.cookies['access'].value, response.cookies['access'].value)
+
+    def test_refresh_token_invalid(self):
+        """ Test the token refresh with an invalid refresh token """
+
+        username = self.user.userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": "password"}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        self.client.cookies['refresh'] = "invalidToken"
+        response = self.client.post(reverse("refresh"))
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn('detail', response.data)
+
+    def test_no_refresh_token(self):
+        """ Test the refresh endpoint without providing a refresh token """
+        response = self.client.post(reverse("refresh"))
+        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
+

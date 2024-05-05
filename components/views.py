@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.postgres.search import TrigramSimilarity
-from django.db.models import F
+from django.db.models import F, Q
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -12,7 +12,7 @@ from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.validators import validate_image
 from .models import AutoPart, Component
 from .pagination import CustomPageNumberPagination
-from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
+from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved, IsConsumer
 from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR, FILE_NOT_FOUND_ERROR
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class ImageCreation(APIView):
         return Response({'detail': "File uploaded successfully"}, status=status.HTTP_201_CREATED)
 
 
-class AutoPartSearchView(APIView):
+class ProviderAutoPartSearchView(APIView):
     permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
 
     def get(self, request, *args, **kwargs):
@@ -125,5 +125,29 @@ class AutoPartSearchView(APIView):
         paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
 
         # Serialize and return the response.
+        serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
+
+
+class ConsumerGetAutoPartsView(APIView):
+    permission_classes = (IsAuthenticated, IsConsumer)
+
+    def get(self, request, *args, **kwargs):
+        query = Q()
+        if request.query_params.get('category'):
+            query &= Q(category=request.query_params.get('category'))
+        if request.query_params.get('make'):
+            query &= Q(vehicle_make=request.query_params.get('make'))
+        if request.query_params.get('model'):
+            query &= Q(vehicle_model=request.query_params.get('model'))
+        if request.query_params.get('year'):
+            query &= Q(vehicle_year=request.query_params.get('year'))
+        if request.query_params.get('name'):
+            query &= Q(component__name=request.query_params.get('name'))
+
+        auto_parts = AutoPart.objects.filter(query)
+        paginator = CustomPageNumberPagination()
+        paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
+
         serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)

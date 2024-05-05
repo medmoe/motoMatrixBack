@@ -1,4 +1,5 @@
 from rest_framework.permissions import BasePermission
+
 from accounts.models import AccountStatus, Provider
 
 
@@ -7,6 +8,13 @@ class IsProvider(BasePermission):
 
     def has_permission(self, request, view):
         return hasattr(request.user, 'userprofile') and hasattr(request.user.userprofile, 'provider')
+
+
+class IsConsumer(BasePermission):
+    message = "Only consumers can access this endpoint"
+
+    def has_permission(self, request, view):
+        return hasattr(request.user, 'userprofile') and hasattr(request.user.userprofile, 'consumer')
 
 
 class IsProviderApproved(BasePermission):

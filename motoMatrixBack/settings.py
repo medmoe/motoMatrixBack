@@ -52,7 +52,6 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'phonenumber_field',
-
 ]
 
 MIDDLEWARE = [
@@ -219,7 +218,6 @@ ELASTICSEARCH_DSL = {
 }
 
 # Logger configuration
-
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

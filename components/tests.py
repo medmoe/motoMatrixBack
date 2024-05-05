@@ -1,4 +1,5 @@
 import logging
+import random
 
 import factory
 from django.db import models
@@ -15,7 +16,7 @@ from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.helpers import create_file
 from .factories import AutoPartFactory, ComponentFactory
 from .models import AutoPart, AutoPartCategories, AutoPartConditions, Component
-from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved
+from .permissions import IsConsumer, IsProvider, IsAutoPartOwner, IsProviderApproved
 from .serializers import FILE_NOT_FOUND_ERROR
 
 PASSWORD = 'password'
@@ -117,7 +118,7 @@ class AutoPartListTestCases(APITestCase):
                 'location': 'location',
             },
 
-            'category': AutoPartCategories.SUSPENSION,
+            'category': AutoPartCategories.BRAKES,
             'vehicle_make': 'vehicle_make',
             'vehicle_model': 'vehicle_model',
             'vehicle_year': 'vehicle_year',
@@ -391,7 +392,7 @@ class ImageCreationTestCases(APITestCase):
         self.assertEqual(AutoPart.objects.count(), 0)
 
 
-class AutoPartSearchViewTestCases(APITestCase):
+class ProviderAutoPartSearchViewTestCases(APITestCase):
     def setUp(self):
         initialized_users = initialize_users(2, 1)
         self.provider, self.other_provider = initialized_users['providers']
@@ -441,3 +442,51 @@ class AutoPartSearchViewTestCases(APITestCase):
         results_ids = [result['id'] for result in response.data['results']]
         for part_id in modified_parts_ids:
             self.assertIn(part_id, results_ids)
+
+
+class ConsumerGetAutoPartsViewTestCases(APITestCase):
+    def setUp(self):
+        self.users = initialize_users(providers_count=3, consumers_count=1)
+        self.auto_parts = []
+        for provider in self.users['providers']:
+            self.auto_parts.append(initialize_auto_parts(provider, 20))  # Arbitrary number
+
+    def test_failed_search_with_unauthenticated_consumer(self):
+        response = self.client.get(reverse('get-auto-parts'), {'category': 'Brakes'})
+        self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
+        self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
+
+    def test_failed_search_with_provider_account(self):
+        username = self.users['providers'][0].userprofile.user.username
+        response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        response = self.client.get(reverse("get-auto-parts"), {'category': 'brakes'})
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data['detail'], IsConsumer.message)
+
+    def test_consumer_retrieves_parts_by_category(self):
+        username = self.users['consumers'][0].userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        response = self.client.get(reverse("get-auto-parts"), {'category': AutoPartCategories.BRAKES})
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        for auto_part in response.data['results']:
+            self.assertEqual(auto_part['category'], AutoPartCategories.BRAKES)
+
+        # Make sure that all parts with given category are retrieved
+        part_count = sum(1 for parts in self.auto_parts for part in parts if part.category == AutoPartCategories.BRAKES)
+        self.assertEqual(part_count, response.data['count'])
+
+    def test_consumer_retrieves_parts_by_multiple_factors(self):
+        username = self.users['consumers'][0].userprofile.user.username
+        response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        vehicle_make = random.choice([part.vehicle_make for parts in self.auto_parts for part in parts])
+        vehicle_model = [part.vehicle_model for parts in self.auto_parts for part in parts if part.vehicle_make == vehicle_make][0]
+        response = self.client.get(reverse("get-auto-parts"), {'make': vehicle_make, 'model': vehicle_model})
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        part_count = sum(1 for parts in self.auto_parts for part in parts if part.vehicle_make == vehicle_make or part.vehicle_model == vehicle_model)
+        self.assertEqual(part_count, response.data['count'])
+        for part in response.data['results']:
+            self.assertEqual(part['vehicle_make'], vehicle_make)
+            self.assertEqual(part['vehicle_model'], vehicle_model)

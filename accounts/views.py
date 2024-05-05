@@ -97,7 +97,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 class CustomTokenRefreshView(TokenRefreshView):
 
     def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES['refresh']
+
+        refresh_token = request.COOKIES.get('refresh', None)
         if refresh_token is None:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
