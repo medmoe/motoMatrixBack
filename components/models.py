@@ -7,54 +7,15 @@ class AutoPartConditions(models.TextChoices):
     REFURBISHED = "REFURBISHED", "Refurbished"
 
 
-class AutoPartCategories(models.TextChoices):
-    """
-    Enumeration of possible categories for auto parts used within the system.
-    Each category is represented by a machine-readable identifier and a human-readable name.
-    """
-    ACCESSORIES = "ACCESSORIES", "Accessories"
-    ANTIFREEZE = "ANTIFREEZE", "Antifreeze"
-    AIR_CONDITIONING_AND_HEATING = "AIR_CONDITIONING_AND_HEATING", "Air Conditioning & Heating"
-    ALTERNATORS_AND_STARTERS = "ALTERNATORS_AND_STARTERS", "Alternators & Starters"
-    BATTERIES = "BATTERIES", "Batteries"
-    BATTERY_AND_ACCESSORIES = "BATTERY_AND_ACCESSORIES", "Battery & Accessories"
-    BEARING_AND_SEALS = "BEARING_AND_SEALS", "Bearing & Seals"
-    BELTS_AND_HOSES = "BELTS_AND_HOSES", "Belts & Hoses"
-    BRAKES = "BRAKES", "Brakes",
-    BRAKE_PADS_AND_SHOES = "BRAKE_PADS_AND_SHOES", "Brake Pads & Shoes"
-    CV_DRIVESHAFT_AND_AXLE = "CV_DRIVESHAFT_AND_AXLE", "CV, Driveshaft & Axle"
-    CHASSIS_AND_STEERING = "CHASSIS_AND_STEERING", "Chassis & Steering"
-    DETAILING = "DETAILING", "Detailing"
-    ENGINE_COOLING = "ENGINE_COOLING", "Engine Cooling"
-    ENGINE_SENSORS_AND_EMISSIONS = "ENGINE_SENSORS_AND_EMISSIONS", "Engine Sensors & Emissions"
-    ENGINES_AND_TRANSMISSIONS = "ENGINES_AND_TRANSMISSIONS", "Engines & Transmissions"
-    ENGINE_OIL_FILTER = "ENGINE_OIL_FILTER", "Engine Oil Filter"
-    EXHAUST = "EXHAUST", "Exhaust"
-    FILTERS = "FILTERS", "Filters"
-    FUEL_DELIVERY = "FUEL_DELIVERY", "Fuel Delivery"
-    GASKETS = "GASKETS", "Gaskets"
-    HARDWARE_AND_FASTENERS = "HARDWARE_AND_FASTENERS", "Hardware & Fasteners"
-    HEADLIGHT_BULB = "HEADLIGHT_BULB", "Headlight Bulb"
-    HEAVY_DUTY_AG_AND_FLEET = "HEAVY_DUTY_AG_AND_FLEET", "Heavy Duty, Ag & Fleet"
-    IGNITION_AND_TUNE_UP = "IGNITION_AND_TUNE_UP", "Ignition & Tune-Up"
-    LAWN_AND_GARDEN = "LAWN_AND_GARDEN", "Lawn & Garden"
-    LIGHTING_AND_ELECTRICAL = "LIGHTING_AND_ELECTRICAL", "Lighting & Electrical"
-    MARINE_AND_BOAT = "MARINE_AND_BOAT", "Marine & Boat"
-    MAINTENANCE_CHEMICALS = "MAINTENANCE_CHEMICALS", "Maintenance Chemicals"
-    MORE_POWERSPORT = "MORE_POWERSPORT", "More Powersport"
-    MOTOR_OIL = "MOTOR_OIL", "Motor Oil"
-    OIL_CHEMICALS_AND_FLUIDS = "OIL_CHEMICALS_AND_FLUIDS", "Oil, Chemicals & Fluids"
-    PAINT_AND_BODY = "PAINT_AND_BODY", "Paint & Body"
-    PERFORMANCE = "PERFORMANCE", "Performance"
-    RECREATIONAL_VEHICLE = "RECREATIONAL_VEHICLE", "Recreational Vehicle"
-    SHOCKS_AND_STRUTS = "SHOCKS_AND_STRUTS", "Shocks & Struts"
-    SPARK_PLUGS = "SPARK_PLUGS", "Spark Plugs"
-    TIRE_AND_WHEEL = "TIRE_AND_WHEEL", "Tire & Wheel"
-    TOOLS_AND_EQUIPMENT = "TOOLS_AND_EQUIPMENT", "Tools & Equipment"
-    TRUCK_TOWING_AND_JEEP = "TRUCK_TOWING_AND_JEEP", "Truck, Towing & Jeep"
-    TURBOCHARGER_AND_SUPERCHARGER = "TURBOCHARGER_AND_SUPERCHARGER", "Turbocharger & Supercharger"
-    WIPERS_AND_COMPONENTS = "WIPERS_AND_COMPONENTS", "Wipers & Components"
-    WINTER = "WINTER", "Winter"
+class Category(models.Model):
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='subcategories')
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name_plural = "Categories"
 
 
 class Component(models.Model):
@@ -80,7 +41,7 @@ class Component(models.Model):
 
 class AutoPart(models.Model):
     component = models.OneToOneField(Component, on_delete=models.CASCADE)
-    category = models.CharField(max_length=100, choices=AutoPartCategories.choices, blank=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, null=True, blank=True)
     vehicle_make = models.CharField(max_length=100, blank=True)
     vehicle_model = models.CharField(max_length=100, blank=True)
     vehicle_year = models.CharField(max_length=100, blank=True)

@@ -1,12 +1,23 @@
 import factory
 from factory.django import DjangoModelFactory
 
-from .models import Component, AutoPart, AutoPartConditions, AutoPartCategories
+from .models import Component, AutoPart, AutoPartConditions, Category
+
+
+class CategoryFactory(DjangoModelFactory):
+    class Meta:
+        model = Category
+
+    name = factory.Iterator(Category.objects.values_list('name', flat=True))
+    parent = factory.Maybe(
+        factory.lazy_attribute(lambda o: o.parent),
+        yes_declaration=factory.SubFactory('self'),
+        no_declaration=None
+    )
 
 
 # Assuming you already have a ProviderFactory somewhere to generate providers.
 # If not, you would need to create one similar to the below ComponentFactory and AutoPartFactory.
-
 class ComponentFactory(DjangoModelFactory):
     class Meta:
         model = Component
@@ -31,7 +42,7 @@ class AutoPartFactory(DjangoModelFactory):
         model = AutoPart
 
     component = factory.SubFactory(ComponentFactory)
-    category = factory.Faker('random_element', elements=[choice[0] for choice in AutoPartCategories.choices])
+    category = factory.Iterator(Category.objects.all())
     vehicle_make = factory.Faker('company')
     vehicle_model = factory.Faker('word')
     vehicle_year = factory.Faker('year')
