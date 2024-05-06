@@ -163,7 +163,7 @@ class CheckAuthView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request):
-        return Response(data={"user_type": request.user.userprofile.profile_type.lower()})
+        return Response(data={"user_type": request.user.userprofile.profile_type})
 
 
 class FileUpload(APIView):
