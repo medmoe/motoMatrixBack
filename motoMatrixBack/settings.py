@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     # My apps
     'accounts',
     'orders',
@@ -52,6 +53,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'phonenumber_field',
+    'django_elasticsearch_dsl',
 ]
 
 MIDDLEWARE = [

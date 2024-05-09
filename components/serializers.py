@@ -1,6 +1,7 @@
 from rest_framework import serializers
-
-from .models import AutoPart, Component
+from rest_framework import exceptions
+from django.http import HttpResponseBadRequest
+from .models import AutoPart, Component, Category
 
 # Validation and Authentication error messages
 AUTO_PART_NOT_FOUND_ERROR = "AutoPart does not exist."
@@ -32,6 +33,16 @@ class AutoPartSerializer(serializers.ModelSerializer):
     class Meta:
         model = AutoPart
         fields = '__all__'
+
+    def is_valid(self, raise_exception=False):
+        if 'category' in self.initial_data:
+            category = Category.objects.filter(name=self.initial_data['category']).first()
+            if not category:
+                raise serializers.ValidationError({"category": ["Category provided is not recognizable!"]})
+            self.initial_data['category'] = category.pk
+        # Perform default validations
+        super_valid = super(AutoPartSerializer, self).is_valid(raise_exception=raise_exception)
+        return super_valid
 
     def create(self, validated_data):
         component_data = validated_data.pop('component')

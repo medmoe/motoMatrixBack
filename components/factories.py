@@ -4,18 +4,6 @@ from factory.django import DjangoModelFactory
 from .models import Component, AutoPart, AutoPartConditions, Category
 
 
-class CategoryFactory(DjangoModelFactory):
-    class Meta:
-        model = Category
-
-    name = factory.Iterator(Category.objects.values_list('name', flat=True))
-    parent = factory.Maybe(
-        factory.lazy_attribute(lambda o: o.parent),
-        yes_declaration=factory.SubFactory('self'),
-        no_declaration=None
-    )
-
-
 # Assuming you already have a ProviderFactory somewhere to generate providers.
 # If not, you would need to create one similar to the below ComponentFactory and AutoPartFactory.
 class ComponentFactory(DjangoModelFactory):

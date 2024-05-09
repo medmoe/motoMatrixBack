@@ -14,8 +14,8 @@ from accounts.factories import ProviderFactory, ConsumerFactory
 from accounts.models import AccountStatus
 from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.helpers import create_file
-from .factories import AutoPartFactory, ComponentFactory, CategoryFactory
-from .models import AutoPart, AutoPartConditions, Component
+from .factories import AutoPartFactory, ComponentFactory
+from .models import AutoPart, AutoPartConditions, Component, Category
 from .permissions import IsConsumer, IsProvider, IsAutoPartOwner, IsProviderApproved
 from .serializers import FILE_NOT_FOUND_ERROR
 
@@ -97,7 +97,6 @@ def initialize_users(providers_count=1, consumers_count=1):
 def initialize_auto_parts(provider, auto_parts_count=1):
     # Create a list of components for the given provider
     components = ComponentFactory.create_batch(auto_parts_count, provider=provider)
-
     # Create auto parts using those components
     auto_parts = AutoPartFactory.create_batch(auto_parts_count, component=factory.Iterator(components))
 
@@ -105,8 +104,10 @@ def initialize_auto_parts(provider, auto_parts_count=1):
 
 
 class AutoPartListTestCases(APITestCase):
+    fixtures = ['initial_categories.json']
+
     def setUp(self):
-        category_instance = CategoryFactory.create()
+        self.categories = Category.objects.all()
         self.auto_part_data = {
             'component': {
                 'name': 'name',
@@ -119,7 +120,7 @@ class AutoPartListTestCases(APITestCase):
                 'location': 'location',
             },
 
-            'category': category_instance.name,
+            'category': random.choice(self.categories).name,
             'vehicle_make': 'vehicle_make',
             'vehicle_model': 'vehicle_model',
             'vehicle_year': 'vehicle_year',
@@ -171,6 +172,10 @@ class AutoPartListTestCases(APITestCase):
         for attr, value in self.auto_part_data.items():
             if attr == 'component':
                 continue
+            if isinstance(getattr(auto_part, attr), Category):
+                self.assertEqual(getattr(auto_part, attr).name, value)
+                continue
+
             self.assertEqual(getattr(auto_part, attr), value)
 
         # Checking that the provider of the auto part is the logged-in used
@@ -186,7 +191,7 @@ class AutoPartListTestCases(APITestCase):
         initialize_auto_parts(self.other_provider, 10)  # arbitrary number
         self.authenticate_user(self.provider.userprofile.user.username)
         response = self.client.get(reverse("auto-parts"))
-        # Assertions
+        # Assertions2
         self.assertEqual(response.status_code, HTTP_200_OK)
         ComparisonHelper.compare_api_and_db_fields(response.data['results'], self, AutoPart)
 
@@ -244,6 +249,8 @@ class AutoPartListTestCases(APITestCase):
 
 
 class AutoPartDetailTestCases(APITestCase):
+    fixtures = ['initial_categories.json']
+
     def setUp(self):
         initialized_users = initialize_users(2, 1)
         provider, other_provider = initialized_users['providers']
@@ -318,6 +325,19 @@ class AutoPartDetailTestCases(APITestCase):
         data = {'vehicle_make': "make", 'component': {'price': "price"}}
         response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", data=data, username=self.provider_username)
         self.handle_response(response, HTTP_400_BAD_REQUEST)
+
+    def test_failed_auto_part_update_with_invalid_category(self):
+        data = {'category': "invalid category", 'component': {'name': 'updated_name'}}
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", data=data, username=self.provider_username)
+        self.handle_response(response, HTTP_400_BAD_REQUEST)
+
+    def test_successful_category_update(self):
+        category = Category.objects.all().first()
+        data = {'category': category.name, 'component': {'name': "updated_name"}}
+        response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", data=data, username=self.provider_username)
+        auto_part = AutoPart.objects.get(id=self.provider_auto_part_id)
+        auto_part.refresh_from_db()
+        self.handle_response(response, HTTP_202_ACCEPTED, auto_part)
 
     def test_failed_auto_part_update_with_consumer_account(self):
         response = self.authenticate_and_get_response(self.provider_auto_part_id, "PUT", {'component': {}}, self.consumer_username)
@@ -394,6 +414,8 @@ class ImageCreationTestCases(APITestCase):
 
 
 class ProviderAutoPartSearchViewTestCases(APITestCase):
+    fixtures = ['initial_categories.json']
+
     def setUp(self):
         initialized_users = initialize_users(2, 1)
         self.provider, self.other_provider = initialized_users['providers']
@@ -407,12 +429,12 @@ class ProviderAutoPartSearchViewTestCases(APITestCase):
         self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
         self.assertIn(str(response.data['detail']), AUTHENTICATION_FAILED_MESSAGES)
 
-    def authenticate(self, username, page_size=20):
+    def authenticate_and_search(self, username, page_size=20):
         self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
         return self.client.get(reverse('autoparts-search'), {'search': self.search_term, 'pageSize': page_size})
 
     def test_failed_search_with_consumer_account(self):
-        response = self.authenticate(self.consumer.userprofile.user.username)
+        response = self.authenticate_and_search(self.consumer.userprofile.user.username)
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data['detail']), IsProvider.message)
 
@@ -425,7 +447,7 @@ class ProviderAutoPartSearchViewTestCases(APITestCase):
         self.assertEqual(str(response.data['detail']), IsProviderApproved.message)
 
     def test_search_returns_only_provider_owned_auto_parts(self):
-        response = self.authenticate(self.provider.userprofile.user.username)
+        response = self.authenticate_and_search(self.provider.userprofile.user.username)
         self.assertEqual(response.status_code, HTTP_200_OK)
         for auto_part in response.data['results']:
             self.assertEqual(auto_part['component']['provider'], self.provider.id)
@@ -434,7 +456,7 @@ class ProviderAutoPartSearchViewTestCases(APITestCase):
         for auto_part in self.provider_auto_parts[:10]:
             auto_part.component.name = self.search_term
             auto_part.component.save()
-        response = self.authenticate(self.provider.userprofile.user.username)
+        response = self.authenticate_and_search(self.provider.userprofile.user.username)
         # Assertions
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertGreaterEqual(response.data['count'], 10)
@@ -454,6 +476,8 @@ class ConsumerGetAutoPartsViewTestCases(APITestCase):
         for provider in self.users['providers']:
             self.auto_parts.append(initialize_auto_parts(provider, 20))  # Arbitrary number
 
+        self.categories = Category.objects.all()
+
     def test_failed_search_with_unauthenticated_consumer(self):
         response = self.client.get(reverse('get-auto-parts'), {'category': 'Brakes'})
         self.assertEqual(response.status_code, HTTP_401_UNAUTHORIZED)
@@ -467,18 +491,19 @@ class ConsumerGetAutoPartsViewTestCases(APITestCase):
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(response.data['detail'], IsConsumer.message)
 
-    # def test_consumer_retrieves_parts_by_category(self):
-    #     username = self.users['consumers'][0].userprofile.user.username
-    #     login_response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
-    #     self.assertEqual(login_response.status_code, HTTP_200_OK)
-    #     response = self.client.get(reverse("get-auto-parts"), {'category': AutoPartCategories.BRAKES})
-    #     self.assertEqual(response.status_code, HTTP_200_OK)
-    #     for auto_part in response.data['results']:
-    #         self.assertEqual(auto_part['category'], AutoPartCategories.BRAKES)
-    #
-    #     # Make sure that all parts with given category are retrieved
-    #     part_count = sum(1 for parts in self.auto_parts for part in parts if part.category == AutoPartCategories.BRAKES)
-    #     self.assertEqual(part_count, response.data['count'])
+    def test_consumer_retrieves_parts_by_category(self):
+        username = self.users['consumers'][0].userprofile.user.username
+        login_response = self.client.post(reverse('login'), {"username": username, "password": PASSWORD}, format='json')
+        self.assertEqual(login_response.status_code, HTTP_200_OK)
+        category = random.choice(self.categories)
+        response = self.client.get(reverse("get-auto-parts"), {'category': category})
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        for auto_part in response.data['results']:
+            self.assertEqual(auto_part['category'], category)
+
+        # Make sure that all parts with given category are retrieved
+        part_count = sum(1 for parts in self.auto_parts for part in parts if part.category == category)
+        self.assertEqual(part_count, response.data['count'])
 
     def test_consumer_retrieves_parts_by_multiple_factors(self):
         username = self.users['consumers'][0].userprofile.user.username

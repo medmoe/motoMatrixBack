@@ -1,6 +1,5 @@
 import logging
-
-from django.contrib.postgres.search import TrigramSimilarity
+from django.contrib.postgres.search import SearchVector
 from django.db.models import F, Q
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
@@ -10,7 +9,7 @@ from rest_framework.views import APIView
 
 from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.validators import validate_image
-from .models import AutoPart, Component
+from .models import AutoPart, Component, Category
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved, IsConsumer
 from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR, FILE_NOT_FOUND_ERROR
@@ -103,23 +102,9 @@ class ProviderAutoPartSearchView(APIView):
 
     def get(self, request, *args, **kwargs):
         search_term = request.query_params.get('search', '')
-
-        # Utilize TrigramSimilarity for fuzzy searching
         auto_parts = AutoPart.objects.annotate(
-            similarity_component_desc=TrigramSimilarity('component__description', search_term),
-            similarity_component_name=TrigramSimilarity('component__name', search_term),
-            similarity_component_manufacturer=TrigramSimilarity('component__manufacturer', search_term),
-            similarity_category=TrigramSimilarity('category', search_term),
-            similarity_condition=TrigramSimilarity('condition', search_term)
-        ).filter(
-            component__provider=request.user.userprofile.provider
-        ).annotate(
-            total_similarity=F('similarity_component_desc') + F('similarity_component_name') + F('similarity_component_manufacturer') + F(
-                'similarity_category') + F('similarity_condition')
-        ).filter(
-            total_similarity__gte=0.3  # This is a threshold, you can adjust based on your needs
-        ).order_by('-total_similarity')
-        logger.info(f'User {request.user.username} searched for {search_term}.')
+            search=SearchVector("component__name", "category__name")
+        )
         # Apply pagination
         paginator = CustomPageNumberPagination()
         paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
@@ -135,7 +120,7 @@ class ConsumerGetAutoPartsView(APIView):
     def get(self, request, *args, **kwargs):
         query = Q()
         if request.query_params.get('category'):
-            query &= Q(category=request.query_params.get('category'))
+            query &= Q(category__name=request.query_params.get('category'))
         if request.query_params.get('make'):
             query &= Q(vehicle_make=request.query_params.get('make'))
         if request.query_params.get('model'):

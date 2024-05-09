@@ -464,4 +464,4 @@ class CheckAuthViewTestCases(APITestCase):
         response = self.client.get(reverse("check-auth"))
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertIn("user_type", response.data)
-        self.assertEqual(response.data['user_type'], ProfileTypes.CONSUMER.lower())
+        self.assertEqual(response.data['user_type'], ProfileTypes.CONSUMER)
