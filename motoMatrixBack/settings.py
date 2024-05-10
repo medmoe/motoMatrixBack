@@ -215,7 +215,10 @@ MEDIA_URL = '/media/'
 # Elastic search configuration
 ELASTICSEARCH_DSL = {
     'default': {
-        'hosts': 'localhost:9200'
+        'hosts': 'https://localhost:9200',
+        'http_auth': ('elastic', config('ELASTIC_PASSWORD')),
+        'verify_certs': True,
+        'ca_certs': '/home/medse/http_ca.crt'
     },
 }
 

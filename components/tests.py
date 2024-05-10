@@ -2,9 +2,11 @@ import logging
 import random
 
 import factory
+from decouple import config
 from django.db import models
 from django.urls import reverse
 from django.utils.timezone import is_aware, make_naive
+from elasticsearch_dsl.connections import connections
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_201_CREATED, HTTP_204_NO_CONTENT, HTTP_401_UNAUTHORIZED, HTTP_202_ACCEPTED, \
     HTTP_400_BAD_REQUEST
 from rest_framework.test import APITestCase
@@ -14,6 +16,7 @@ from accounts.factories import ProviderFactory, ConsumerFactory
 from accounts.models import AccountStatus
 from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.helpers import create_file
+from .documents import AutoPartDocument
 from .factories import AutoPartFactory, ComponentFactory
 from .models import AutoPart, AutoPartConditions, Component, Category
 from .permissions import IsConsumer, IsProvider, IsAutoPartOwner, IsProviderApproved
@@ -417,12 +420,25 @@ class ProviderAutoPartSearchViewTestCases(APITestCase):
     fixtures = ['initial_categories.json']
 
     def setUp(self):
+        connections.create_connection(hosts=['https://localhost:9200'],
+                                      ca_certs="/home/medse/http_ca.crt",
+                                      basic_auth=('elastic', config('ELASTIC_PASSWORD')),
+                                      timeout=20)
+        AutoPartDocument.init()
+
         initialized_users = initialize_users(2, 1)
         self.provider, self.other_provider = initialized_users['providers']
         self.consumer, = initialized_users['consumers']
         self.search_term = 'brake'
         self.provider_auto_parts = initialize_auto_parts(self.provider, 50)  # Arbitrary number
-        initialize_auto_parts(self.other_provider, 50)  # Arbitrary number
+        _ = initialize_auto_parts(self.other_provider, 50)  # Arbitrary number
+
+        # Refresh index
+        AutoPartDocument._index.refresh()
+
+    @classmethod
+    def tearDownClass(cls):
+        AutoPartDocument._index.delete(ignore=[400, 404])
 
     def test_failed_search_with_unauthenticated_provider(self):
         response = self.client.get(reverse('autoparts-search'), {'search': self.search_term})

@@ -39,7 +39,7 @@ def initialize_users(providers_count=1, consumers_count=1):
     return users
 
 
-class SignUpTestCases(APITransactionTestCase):
+class SignUpTestCases(APITestCase):
     def setUp(self):
         self.data = {
             'userprofile': {

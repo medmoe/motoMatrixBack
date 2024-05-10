@@ -1,6 +1,6 @@
 import logging
-from django.contrib.postgres.search import SearchVector
-from django.db.models import F, Q
+
+from django.db.models import Q
 from rest_framework import status, permissions
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 
 from accounts.serializers import IMAGE_UPLOAD_ERROR
 from utils.validators import validate_image
-from .models import AutoPart, Component, Category
+from .documents import AutoPartDocument
+from .models import AutoPart, Component
 from .pagination import CustomPageNumberPagination
 from .permissions import IsProvider, IsAutoPartOwner, IsProviderApproved, IsConsumer
 from .serializers import AutoPartSerializer, AUTO_PART_NOT_FOUND_ERROR, FILE_NOT_FOUND_ERROR
@@ -101,13 +102,17 @@ class ProviderAutoPartSearchView(APIView):
     permission_classes = (IsAuthenticated, IsProvider, IsProviderApproved)
 
     def get(self, request, *args, **kwargs):
-        search_term = request.query_params.get('search', '')
-        auto_parts = AutoPart.objects.annotate(
-            search=SearchVector("component__name", "category__name")
-        )
+        search_term = request.query_params.get('search', None)
+        if not search_term:
+            return Response(data=None, status=status.HTTP_200_OK)
+
+        search_result = AutoPartDocument.search().query("multi_match",
+                                                        query=search_term,
+                                                        fields=["component.name", "component.manufacturer", "component.description"])
+        results = search_result.to_queryset()
         # Apply pagination
         paginator = CustomPageNumberPagination()
-        paginated_auto_parts = paginator.paginate_queryset(auto_parts, request)
+        paginated_auto_parts = paginator.paginate_queryset(results, request)
 
         # Serialize and return the response.
         serializer = AutoPartSerializer(paginated_auto_parts, many=True, context={'request': request})
